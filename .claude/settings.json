@@ -1,0 +1,7 @@
+{
+  "enabledMcpjsonServers": ["context7"],
+  "permissions": {
+    "deny": ["Read(./.env)"]
+  },
+  "model": "opus[1m]"
+}

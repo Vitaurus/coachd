@@ -1,0 +1,18 @@
+services:
+  coachd:
+    build: .
+    image: coachd:dev
+    env_file:
+      - .env
+    environment:
+      # Garmin OAuth tokens live here, on a mounted volume so they survive
+      # rebuilds and restarts. `login` writes them; the coach reads them.
+      GARMINTOKENS: /data/garmin
+    volumes:
+      - ./data/garmin:/data/garmin
+    restart: "no"
+
+# One-time interactive Garmin login (allocates a TTY for password + MFA):
+#   docker compose run --rm coachd login
+# Check token state:
+#   docker compose run --rm coachd token-status
