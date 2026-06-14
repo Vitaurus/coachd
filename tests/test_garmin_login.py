@@ -20,6 +20,7 @@ from garminconnect import (
 )
 
 from coachd.auth.garmin_login import (
+    LoginFailed,
     TokenExpired,
     TokenState,
     ensure_valid,
@@ -53,7 +54,8 @@ class _FakeGarmin:
       * ``factory()`` for token validation
     """
 
-    def __init__(self, email=None, password=None, prompt_mfa=None, *, record=None):
+    def __init__(self, email=None, password=None, prompt_mfa=None, *, record=None, **_kw):
+        # **_kw swallows real constructor kwargs like retry_attempts
         self._record = record if record is not None else {}
         self._record["email"] = email
         self._record["password"] = password
@@ -72,8 +74,8 @@ class _FakeGarmin:
 
 
 def _factory(record: dict):
-    def make(email=None, password=None, prompt_mfa=None):
-        return _FakeGarmin(email, password, prompt_mfa=prompt_mfa, record=record)
+    def make(email=None, password=None, prompt_mfa=None, **kw):
+        return _FakeGarmin(email, password, prompt_mfa=prompt_mfa, record=record, **kw)
 
     return make
 
@@ -130,6 +132,35 @@ def test_run_login_requires_email(tmp_path):
             ask_password=lambda: "hunter2",
             ask_mfa=lambda: "x",
             garmin_factory=_factory({}),
+            out=lambda _l: None,
+        )
+
+
+def test_run_login_rate_limited_raises_clean(tmp_path):
+    """A 429 surfaces as an actionable LoginFailed, not a raw error or hang."""
+    record = {"login_raises": GarminConnectTooManyRequestsError("429")}
+    with pytest.raises(LoginFailed, match="rate-limited"):
+        run_login(
+            tmp_path,
+            ask_email=lambda: "rider@example.com",
+            ask_password=lambda: "hunter2",
+            ask_mfa=lambda: "x",
+            garmin_factory=_factory(record),
+            out=lambda _l: None,
+        )
+    # nothing persisted on failure
+    assert not (tmp_path / "oauth2_token.json").exists()
+
+
+def test_run_login_bad_credentials_raises_clean(tmp_path):
+    record = {"login_raises": GarminConnectAuthenticationError("401")}
+    with pytest.raises(LoginFailed, match="rejected"):
+        run_login(
+            tmp_path,
+            ask_email=lambda: "rider@example.com",
+            ask_password=lambda: "wrong",
+            ask_mfa=lambda: "x",
+            garmin_factory=_factory(record),
             out=lambda _l: None,
         )
 

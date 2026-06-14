@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import sys
 
-from .auth.garmin_login import TokenState, run_login, token_status
+from .auth.garmin_login import LoginFailed, TokenState, run_login, token_status
 from .config import ConfigError, resolve_tokenstore
 
 _USAGE = "usage: python -m coachd {login|token-status|serve}"
@@ -31,7 +31,14 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     if command == "login":
-        run_login(tokenstore)
+        try:
+            run_login(tokenstore)
+        except LoginFailed as exc:
+            print(f"login failed: {exc}", file=sys.stderr)
+            return 1
+        except KeyboardInterrupt:
+            print("\nlogin cancelled.", file=sys.stderr)
+            return 130
         return 0
 
     if command == "token-status":

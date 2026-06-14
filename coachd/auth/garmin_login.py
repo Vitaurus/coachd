@@ -63,6 +63,15 @@ class TokenExpired(Exception):
     """
 
 
+class LoginFailed(Exception):
+    """Interactive login could not complete, with a human-actionable message.
+
+    Wraps Garmin's raw failures (rate-limit, bad credentials, unreachable) so the
+    CLI prints one clear line and exits, instead of dumping a traceback or hanging
+    in transport/retry churn.
+    """
+
+
 # Injection seams so the flow is testable without a TTY or the network.
 EmailPrompt = Callable[[], str]
 PasswordPrompt = Callable[[], str]
@@ -110,8 +119,26 @@ def run_login(
     if not password:
         raise ValueError("Garmin password is required.")
 
-    client = garmin_factory(email, password, prompt_mfa=ask_mfa)
-    client.login()                 # triggers ask_mfa if Garmin demands MFA
+    # retry_attempts=1: a 429 or bad-credential failure should surface fast, not
+    # back off three times and look like a hang. The user simply re-runs.
+    client = garmin_factory(email, password, prompt_mfa=ask_mfa, retry_attempts=1)
+    try:
+        client.login()  # triggers ask_mfa if Garmin demands MFA
+    except GarminConnectTooManyRequestsError as exc:
+        raise LoginFailed(
+            "Garmin rate-limited your IP (HTTP 429). Wait 15–60 minutes before "
+            "trying again — repeated attempts extend the block."
+        ) from exc
+    except GarminConnectAuthenticationError as exc:
+        raise LoginFailed(
+            "Garmin rejected the email/password. Check your credentials "
+            "(and any MFA code) and try again."
+        ) from exc
+    except GarminConnectConnectionError as exc:
+        raise LoginFailed(
+            "Could not reach Garmin. Check your network and try again."
+        ) from exc
+
     client.client.dump(str(store))  # writes oauth1_token.json + oauth2_token.json
     out(f"✓ Garmin tokens saved to {store}")
     out("You can now start the coach: docker compose up -d")
