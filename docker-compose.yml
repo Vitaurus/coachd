@@ -3,7 +3,10 @@ services:
     build: .
     image: coachd:dev
     env_file:
-      - .env
+      # optional: `login` / `token-status` need no .env (GARMINTOKENS is set
+      # below). `serve` reads TG/ANTHROPIC from .env when the loop lands.
+      - path: .env
+        required: false
     environment:
       # Garmin OAuth tokens live here, on a mounted volume so they survive
       # rebuilds and restarts. `login` writes them; the coach reads them.
