@@ -1,0 +1,33 @@
+[project]
+name = "coachd"
+version = "0.0.1"
+description = "Open-source self-hosted AI health coach over Garmin Connect data (Telegram closed loop)"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.12"
+
+# garminconnect 0.3.x carries its own auth client (it dropped the now-DEPRECATED
+# `garth` dependency, absorbing it upstream). Garmin data-access is still an
+# unofficial scrape — the fragile axis (see architecture doc). Pin exactly, bump
+# deliberately, never float.
+dependencies = [
+    "garminconnect==0.3.6",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+[project.scripts]
+coachd = "coachd.__main__:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["coachd"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

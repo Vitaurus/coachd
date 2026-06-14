@@ -1,0 +1,31 @@
+# secrets + local state — never commit
+.env
+data/
+oauth*_token.json
+garmin_tokens.json
+telegram.env
+
+# python
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+*.egg-info/
+.venv/
+
+# os
+.DS_Store
+
+# legacy LXC reference (behavioral spec only — NOT part of the OSS codebase, and
+# it carries secrets: garmin_tokens.json, telegram.env). Kept on disk locally for
+# the methodology port (#2); never committed.
+garmin/
+garmin-coach-HANDOFF.md
+
+# local agent config
+.claude/settings.local.json
+
+# uv project venv (lockfile uv.lock IS committed)
+.venv/
