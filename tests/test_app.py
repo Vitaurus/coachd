@@ -95,6 +95,16 @@ def test_report_agent_is_readonly_chat_agent_is_guarded(tmp_path):
     assert not any("schedule_workout" in t for t in chat.allowed_tools)
     assert chat.can_use_tool is not None                    # the guard is wired
 
+    # composite scheduling tool: available ONLY to the chat agent (in-process SDK
+    # MCP server), never to the read-only report agent
+    assert "coachd" in app.chat_agent._mcp_servers
+    assert "coachd" not in app.engine._llm._mcp_servers
+
+    # and the guard PARKS the composite (it's in the write set, NOT auto-approved)
+    verdict = asyncio.run(app.chat_agent._can_use_tool(
+        "mcp__coachd__create_and_schedule_run", {"schedule_date": "2026-06-16"}, None))
+    assert getattr(verdict, "behavior", None) == "deny"
+
 
 def test_owner_gate_wired(tmp_path):
     fake_query, fake_options = _fakes()

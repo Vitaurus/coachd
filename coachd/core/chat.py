@@ -13,10 +13,15 @@ so this only renders the recent dialogue + the new message.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
+from typing import Callable
 
 from ..ports.llm import LLMError, LLMPort
 from .pending import PendingAction, PendingStore
 from .session_store import SessionStore
+
+# Ukrainian weekday names (Mon=0). Explicit map — no locale dependency.
+_UA_WEEKDAYS = ("понеділок", "вівторок", "середа", "четвер", "пʼятниця", "субота", "неділя")
 
 
 @dataclass(frozen=True)
@@ -34,11 +39,19 @@ class ChatEngine:
         sessions: SessionStore,
         pending: PendingStore,
         history_turns: int = 10,
+        now: Callable[[], datetime] | None = None,
     ) -> None:
         self._agent = chat_agent
         self._sessions = sessions
         self._pending = pending
         self._history_turns = history_turns
+        # tz-aware clock so "завтра"/"на середу" resolve to a real schedule_date;
+        # injected by the composition root (config.tz) and in tests.
+        self._now = now or datetime.now
+
+    def _today_line(self) -> str:
+        d = self._now()
+        return f"Сьогодні: {d.date().isoformat()} ({_UA_WEEKDAYS[d.weekday()]})."
 
     def _render(self, chat_id: object, text: str) -> str:
         turns = self._sessions.history(chat_id)[-self._history_turns:]
@@ -47,9 +60,10 @@ class ChatEngine:
             who = "Користувач" if t.role == "user" else "Коуч"
             lines.append(f"{who}: {t.text}")
         history = "\n".join(lines)
+        today = self._today_line()
         if history:
-            return f"Попередня розмова:\n{history}\n\nКористувач: {text}"
-        return f"Користувач: {text}"
+            return f"{today}\n\nПопередня розмова:\n{history}\n\nКористувач: {text}"
+        return f"{today}\n\nКористувач: {text}"
 
     async def run_chat(self, chat_id: object, text: str) -> ChatReply:
         before = {a.nonce for a in self._pending.list_pending()}

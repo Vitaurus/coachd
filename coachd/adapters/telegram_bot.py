@@ -22,7 +22,6 @@ from ..core.chat import ChatEngine
 from ..core.pending import PendingStore
 from ..security.authenticator import OwnerGate
 from ..security.write_guard import default_confirm_message
-from .garmin_mcp_client import bare_tool
 from .telegram import chunk_message, make_api
 
 # Sent the instant an owner message arrives, before the (multi-second) agent
@@ -102,8 +101,10 @@ class TelegramBot:
                 self._send(chat_id, "⏱ Дію вже оброблено або скасовано.")
                 return
             try:
-                await self._executor.execute(action)
-                self._send(chat_id, f"✓ Виконано: {bare_tool(action.tool)}.")
+                # the executor returns a fully-formed status line (✓ single tool,
+                # ✓ create+schedule, or ⚠️ partial-failure note) — send verbatim
+                msg = await self._executor.execute(action)
+                self._send(chat_id, msg)
             except Exception as exc:  # noqa: BLE001 — surface any MCP failure to the user
                 self._send(chat_id, f"⚠️ Не вдалося виконати дію: {exc}")
         elif kind == "cancel":

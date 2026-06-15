@@ -64,6 +64,28 @@ def test_history_feeds_into_prompt(tmp_path):
     assert "Користувач: друге" in captured["prompt"]
 
 
+def test_today_date_injected_into_prompt(tmp_path):
+    # the model needs today's date to resolve "завтра"/"на середу" → schedule_date
+    from datetime import datetime
+
+    pending = PendingStore(tmp_path / "p.json")
+    captured = {}
+
+    class _Spy(_ParkingAgent):
+        async def run_turn(self, prompt):
+            captured["prompt"] = prompt
+            return await super().run_turn(prompt)
+
+    eng = ChatEngine(
+        chat_agent=_Spy(pending),
+        sessions=SessionStore(tmp_path / "s.json", now=lambda: "t"),
+        pending=pending,
+        now=lambda: datetime(2026, 6, 15),  # a Monday
+    )
+    asyncio.run(eng.run_chat(1, "склади і заплануй на завтра"))
+    assert "Сьогодні: 2026-06-15 (понеділок)." in captured["prompt"]
+
+
 def test_parked_write_is_returned_for_confirmation(tmp_path):
     pending = PendingStore(tmp_path / "p.json", nonce_factory=lambda: "N1")
     eng = ChatEngine(

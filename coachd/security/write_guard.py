@@ -29,9 +29,15 @@ DenyBuilder = Callable[[PendingAction], object]
 
 
 def default_confirm_message(action: PendingAction) -> str:
-    """USER-facing caption shown above the Telegram confirm/cancel buttons."""
+    """USER-facing caption shown above the Telegram confirm/cancel buttons.
+
+    Surfaces the schedule_date when present so the user can SEE at confirm time
+    whether the workout will land on the calendar or only in the library — turns
+    a silent "model forgot to schedule" miss into a visible, cancellable one."""
+    sched = (action.input or {}).get("schedule_date")
+    when = f"\n📅 буде заплановано на {sched}" if sched else ""
     return (
-        f"⏸ Дія потребує підтвердження: {action.tool}\n"
+        f"⏸ Дія потребує підтвердження: {action.tool}{when}\n"
         f"Підтвердь або скасуй у Telegram (#{action.nonce})."
     )
 
