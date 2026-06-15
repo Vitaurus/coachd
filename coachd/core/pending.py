@@ -96,6 +96,10 @@ class PendingStore:
     def get(self, nonce: str) -> PendingAction | None:
         return self._actions.get(nonce)
 
+    def list_pending(self) -> list[PendingAction]:
+        """All actions still awaiting confirmation (status == pending)."""
+        return [a for a in self._actions.values() if a.status == PENDING]
+
     def confirm(self, nonce: str) -> PendingAction | None:
         """Mark a pending action used and return it — exactly once.
 

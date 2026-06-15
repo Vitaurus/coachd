@@ -84,14 +84,13 @@ def _serve() -> int:
             evening=evening,
             token_state_fn=lambda ts: token_status(ts),
         )
-        scheduler.start()
+        scheduler.start()  # background cron jobs on this loop
         print(
-            f"coachd serve: report scheduler started "
-            f"(morning {morning}, evening {evening}, TZ {config.tz}). "
-            f"Chat lands next.",
+            f"coachd serve: reports (morning {morning}, evening {evening}, "
+            f"TZ {config.tz}) + chat bot starting.",
             flush=True,
         )
-        await asyncio.Event().wait()  # run until the container stops
+        await app.bot.run()  # long-poll loop; keeps the process alive
 
     try:
         asyncio.run(_run())

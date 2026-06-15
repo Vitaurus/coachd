@@ -18,6 +18,9 @@ dependencies = [
     "claude-agent-sdk==0.2.101",
     # In-process cron for the morning/evening report jobs (timezone-aware).
     "apscheduler==3.11.2",
+    # MCP client — used to execute a confirmed write directly on the Garmin MCP
+    # (deterministic, no LLM in the confirm path).
+    "mcp>=1.23.0",
 ]
 
 [project.optional-dependencies]

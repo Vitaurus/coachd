@@ -21,13 +21,17 @@ from pathlib import Path
 from typing import Callable
 
 from .adapters.anthropic_agent import AnthropicAgent, sdk_allow, sdk_deny
+from .adapters.garmin_mcp_client import GarminMcpExecutor
 from .adapters.garmin_provider import GarminProvider
 from .adapters.telegram import TelegramMessenger
+from .adapters.telegram_bot import TelegramBot
 from .config import ServiceConfig
+from .core.chat import ChatEngine
 from .core.engine import CoachEngine
 from .core.journal import Journal
 from .core.pending import PendingStore
 from .core.prompts import build_system_prompt
+from .core.session_store import SessionStore
 from .security.authenticator import OwnerGate
 from .security.write_guard import default_confirm_message, make_write_guard
 
@@ -42,10 +46,14 @@ class App:
     config: ServiceConfig
     provider: GarminProvider
     engine: CoachEngine
+    chat_engine: ChatEngine
     chat_agent: AnthropicAgent
     messenger: TelegramMessenger
     owner_gate: OwnerGate
     pending: PendingStore
+    session_store: SessionStore
+    executor: GarminMcpExecutor
+    bot: TelegramBot
 
 
 def build_app(
@@ -101,19 +109,37 @@ def build_app(
         worn_start=config.worn_start,
     )
 
+    # --- chat: history + the write-guarded agent; confirmed writes run direct ---
+    session_store = SessionStore(data_root / "sessions.json")
+    chat_engine = ChatEngine(chat_agent=chat_agent, sessions=session_store, pending=pending)
+    executor = GarminMcpExecutor(provider.mcp_servers()["garmin"])
+
+    owner_gate = OwnerGate(config.owner_chat_ids)
+
     if post is not None:
         messenger = TelegramMessenger(config.tg_bot_token, config.owner_chat_ids[0], post=post)
     else:
         messenger = TelegramMessenger(config.tg_bot_token, config.owner_chat_ids[0])
 
-    owner_gate = OwnerGate(config.owner_chat_ids)
+    bot = TelegramBot(
+        token=config.tg_bot_token,
+        owner_gate=owner_gate,
+        chat_engine=chat_engine,
+        pending=pending,
+        executor=executor,
+        offset_path=data_root / "offset",
+    )
 
     return App(
         config=config,
         provider=provider,
         engine=engine,
+        chat_engine=chat_engine,
         chat_agent=chat_agent,
         messenger=messenger,
         owner_gate=owner_gate,
         pending=pending,
+        session_store=session_store,
+        executor=executor,
+        bot=bot,
     )
