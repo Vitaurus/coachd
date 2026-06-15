@@ -152,6 +152,23 @@ class AnthropicAgent:
             from claude_agent_sdk import query as query_fn
         options = self._build_options()
         messages: list[object] = []
-        async for msg in query_fn(prompt=prompt, options=options):
+        # The SDK rejects a plain-string prompt whenever a can_use_tool callback
+        # is set ("requires streaming mode"): the permission hook needs the
+        # bidirectional channel that only the AsyncIterable input opens. Wrap the
+        # single turn into a one-message stream in that case. The read-only report
+        # path has no guard, so it keeps the simpler string mode.
+        prompt_arg = _as_stream(prompt) if self._can_use_tool is not None else prompt
+        async for msg in query_fn(prompt=prompt_arg, options=options):
             messages.append(msg)
         return extract_result(messages)
+
+
+async def _as_stream(text: str):
+    """One-shot streaming-mode input: a single user message, shaped as the SDK
+    expects (see claude_agent_sdk.query streaming example)."""
+    yield {
+        "type": "user",
+        "message": {"role": "user", "content": text},
+        "parent_tool_use_id": None,
+        "session_id": "default",
+    }
