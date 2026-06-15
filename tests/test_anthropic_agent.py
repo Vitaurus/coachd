@@ -11,8 +11,75 @@ from coachd.adapters.anthropic_agent import (
     CONTEXT_1M_BETA,
     AnthropicAgent,
     extract_result,
+    probe_anthropic_auth,
 )
 from coachd.ports.llm import LLMError
+
+
+# --- probe_anthropic_auth (boot fail-fast) ---------------------------------- #
+def _fixed_status(code):
+    """A status_fn that records the headers it was called with and returns code."""
+    seen: dict = {}
+
+    def status_fn(url, headers):
+        seen["url"] = url
+        seen["headers"] = headers
+        return code
+
+    return status_fn, seen
+
+
+def test_probe_valid_credential_returns_valid():
+    status_fn, _ = _fixed_status(200)
+    assert probe_anthropic_auth("sk-ant-api-x", "", status_fn=status_fn) == "valid"
+
+
+def test_probe_rejected_on_401_and_403():
+    for code in (401, 403):
+        status_fn, _ = _fixed_status(code)
+        assert probe_anthropic_auth("sk-ant-api-x", "", status_fn=status_fn) == "rejected"
+
+
+def test_probe_5xx_is_unreachable_not_rejected():
+    # a transient server error must NOT read as a bad key (the EXPIRED-vs-
+    # UNREACHABLE lesson) — boot proceeds and retries per-turn
+    status_fn, _ = _fixed_status(503)
+    assert probe_anthropic_auth("sk-ant-api-x", "", status_fn=status_fn) == "unreachable"
+
+
+def test_probe_network_error_is_unreachable():
+    def boom(url, headers):
+        raise OSError("name resolution failed")
+
+    assert probe_anthropic_auth("sk-ant-api-x", "", status_fn=boom) == "unreachable"
+
+
+def test_probe_no_credential_is_rejected():
+    status_fn, seen = _fixed_status(200)
+    assert probe_anthropic_auth("", "", status_fn=status_fn) == "rejected"
+    assert seen == {}  # short-circuits — never hits the network
+
+
+def test_probe_oauth_token_uses_bearer_header():
+    status_fn, seen = _fixed_status(200)
+    probe_anthropic_auth("", "sk-ant-oat-tok", status_fn=status_fn)
+    assert seen["headers"]["Authorization"] == "Bearer sk-ant-oat-tok"
+    assert "x-api-key" not in seen["headers"]
+
+
+def test_probe_api_key_uses_x_api_key_header():
+    status_fn, seen = _fixed_status(200)
+    probe_anthropic_auth("sk-ant-api-key", "", status_fn=status_fn)
+    assert seen["headers"]["x-api-key"] == "sk-ant-api-key"
+    assert "Authorization" not in seen["headers"]
+
+
+def test_probe_prefers_oauth_when_both_present():
+    # the OAuth token wins (Bearer) — config never sets both, but be deterministic
+    status_fn, seen = _fixed_status(200)
+    probe_anthropic_auth("sk-ant-api-key", "sk-ant-oat-tok", status_fn=status_fn)
+    assert seen["headers"]["Authorization"] == "Bearer sk-ant-oat-tok"
+    assert "x-api-key" not in seen["headers"]
 
 
 def _assistant(*texts, error=None):
