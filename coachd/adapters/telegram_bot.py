@@ -56,6 +56,24 @@ class TelegramBot:
                 "chat_id": chat_id, "text": c, "disable_web_page_preview": "true",
             })
 
+    def _send_ack(self, chat_id: object) -> object:
+        """Send the "⏳" ack and return its ``message_id`` so it can be removed
+        once the real reply lands (None if the API gave no id — then we skip the
+        delete). ACK_TEXT is one short line, so no chunking is needed."""
+        result = self._api("sendMessage", {"chat_id": chat_id, "text": ACK_TEXT})
+        return result.get("message_id") if isinstance(result, dict) else None
+
+    def _delete(self, chat_id: object, message_id: object) -> None:
+        """Best-effort delete of the transient ack. Telegram lets a bot delete
+        only its own recent messages, so a failure (too old / already gone) is
+        cosmetic — never let it break the turn."""
+        if message_id is None:
+            return
+        try:
+            self._api("deleteMessage", {"chat_id": chat_id, "message_id": message_id})
+        except Exception:  # noqa: BLE001 — deletion is cosmetic, swallow any failure
+            pass
+
     def _send_confirm(self, chat_id: object, action) -> None:
         keyboard = {"inline_keyboard": [[
             {"text": "✓ Підтвердити", "callback_data": f"confirm:{action.nonce}"},
@@ -87,9 +105,10 @@ class TelegramBot:
         if not text:
             return  # v1: text only (voice is v1.1)
 
-        self._send(chat_id, ACK_TEXT)  # "received, working on it" — the turn is slow
+        ack_id = self._send_ack(chat_id)  # "received, working on it" — the turn is slow
         reply = await self._chat.run_chat(chat_id, text)
         self._send(chat_id, reply.text)
+        self._delete(chat_id, ack_id)  # answer landed → the "⏳" ack is now stale
         for action in reply.pending:
             self._send_confirm(chat_id, action)
 

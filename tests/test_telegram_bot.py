@@ -15,9 +15,15 @@ OWNER = 123
 class _Api:
     def __init__(self):
         self.calls = []
+        self._next_id = 0
 
     def __call__(self, method, params=None):
         self.calls.append((method, params or {}))
+        # mirror make_api: sendMessage's result is a Message dict (carries the
+        # message_id the bot deletes the ack by); others return a bare list
+        if method == "sendMessage":
+            self._next_id += 1
+            return {"message_id": self._next_id}
         return []
 
     def methods(self):
@@ -80,6 +86,44 @@ def test_ack_sent_before_the_answer(tmp_path):
     texts = [p.get("text") for m, p in api.calls if m == "sendMessage"]
     # ack first ("working on it"), then the real answer
     assert texts == [ACK_TEXT, "ось аналіз"]
+
+
+def test_ack_deleted_after_the_answer(tmp_path):
+    bot, api = _bot(tmp_path, reply=ChatReply("ось аналіз", []))
+    asyncio.run(bot.handle_update(_msg(OWNER, "як я?")))
+    # the ack is sendMessage #1 → message_id 1; it's removed once the reply lands
+    deletes = [p for m, p in api.calls if m == "deleteMessage"]
+    assert len(deletes) == 1
+    assert deletes[0] == {"chat_id": OWNER, "message_id": 1}
+    # ordering: ack + reply sent BEFORE the delete (ack no longer dangles)
+    methods = api.methods()
+    assert methods.index("deleteMessage") > methods.index("sendMessage")
+
+
+def test_ack_delete_failure_does_not_break_turn(tmp_path):
+    # Telegram refuses to delete an old/missing message → the reply must still
+    # have gone out; the cosmetic delete failure is swallowed.
+    class _RaisingApi(_Api):
+        def __call__(self, method, params=None):
+            if method == "deleteMessage":
+                self.calls.append((method, params or {}))
+                raise RuntimeError("message to delete not found")
+            return super().__call__(method, params)
+
+    api = _RaisingApi()
+    bot = TelegramBot(
+        token="t",
+        owner_gate=OwnerGate([OWNER]),
+        chat_engine=_Chat(ChatReply("ось аналіз", [])),
+        pending=PendingStore(tmp_path / "p.json", nonce_factory=lambda: "N1"),
+        executor=_Exec(),
+        offset_path=tmp_path / "offset",
+        api=api,
+    )
+    asyncio.run(bot.handle_update(_msg(OWNER, "як я?")))
+    texts = [p.get("text") for m, p in api.calls if m == "sendMessage"]
+    assert "ось аналіз" in texts          # reply still delivered
+    assert "deleteMessage" in api.methods()  # delete was attempted
 
 
 def test_non_owner_message_ignored(tmp_path):
