@@ -8,11 +8,17 @@ services:
       - path: .env
         required: false
     environment:
-      # Garmin OAuth tokens live here, on a mounted volume so they survive
-      # rebuilds and restarts. `login` writes them; the coach reads them.
+      # Garmin OAuth tokens live under /data/garmin; the coach also writes its
+      # runtime state to /data (journal, chat sessions, poll offset, pending
+      # confirmations). `login` writes the tokens; the coach reads them.
       GARMINTOKENS: /data/garmin
     volumes:
-      - ./data/garmin:/data/garmin
+      # Mount the WHOLE /data, not just /data/garmin — otherwise journal,
+      # sessions.json, offset and pending.json (written to /data, the parent of
+      # the token store) live on the container's ephemeral layer and are wiped on
+      # every restart/recreate. ./data is gitignored + dockerignored (it carries
+      # the OAuth tokens), so all state persists on the host safely.
+      - ./data:/data
     restart: "no"
 
 # One-time interactive Garmin login (allocates a TTY for password + MFA):
