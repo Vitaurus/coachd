@@ -32,6 +32,50 @@ _RETRYABLE = {"rate_limit", "server_error"}
 
 CanUseTool = Callable[[str, dict, object], Awaitable[object]]
 
+_MODELS_URL = "https://api.anthropic.com/v1/models"
+
+
+def _http_status(url: str, headers: dict) -> int:
+    """GET ``url`` with ``headers``, return the HTTP status (HTTPError → its code)."""
+    import urllib.error
+    import urllib.request
+
+    req = urllib.request.Request(url, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=15) as r:
+            return r.status
+    except urllib.error.HTTPError as exc:
+        return exc.code
+
+
+def probe_anthropic_auth(
+    api_key: str, oauth_token: str, *, status_fn: Callable[[str, dict], int] = _http_status
+) -> str:
+    """Validate the Anthropic credential at boot — fail fast with a clear message
+    instead of a per-turn "error result: success" crash-loop on a bad key.
+
+    Returns ``"valid"`` / ``"rejected"`` / ``"unreachable"``. The two credential
+    kinds authenticate differently (verified live): a subscription OAuth token
+    (``claude setup-token``) via ``Authorization: Bearer``; a pay-as-you-go API
+    key via ``x-api-key``. A network failure is ``"unreachable"`` (tolerated — a
+    transient outage must not block boot), NOT ``"rejected"`` (the Garmin EXPIRED
+    vs UNREACHABLE lesson)."""
+    if oauth_token:
+        headers = {"Authorization": f"Bearer {oauth_token}", "anthropic-version": "2023-06-01"}
+    elif api_key:
+        headers = {"x-api-key": api_key, "anthropic-version": "2023-06-01"}
+    else:
+        return "rejected"  # config guards this, but be explicit
+    try:
+        code = status_fn(_MODELS_URL, headers)
+    except Exception:  # noqa: BLE001 — any network error is "can't tell", not "bad key"
+        return "unreachable"
+    if code == 200:
+        return "valid"
+    if code in (401, 403):
+        return "rejected"
+    return "unreachable"  # 5xx / unexpected — don't block boot over it
+
 
 def extract_result(messages: Iterable[object]) -> AgentResult:
     """Reduce a stream of SDK messages to an :class:`AgentResult`.

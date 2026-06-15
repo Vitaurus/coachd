@@ -135,6 +135,28 @@ def _serve() -> int:
         print(f"config error:\n{exc}", file=sys.stderr)
         return 2
 
+    # Fail fast on a bad Anthropic credential — otherwise every chat turn (and
+    # report) dies with a cryptic "Claude Code returned an error result: success"
+    # loop. A transient outage is tolerated (we proceed and retry per-turn).
+    from .adapters.anthropic_agent import probe_anthropic_auth
+
+    auth = probe_anthropic_auth(config.anthropic_api_key, config.oauth_token)
+    if auth == "rejected":
+        print(
+            "serve: Anthropic відхилив креденшл (HTTP 401). Перевір ANTHROPIC_API_KEY "
+            "(ключ з console.anthropic.com) або CLAUDE_CODE_OAUTH_TOKEN (від "
+            "`claude setup-token`) — і памʼятай: OAuth-токен ставиться в "
+            "CLAUDE_CODE_OAUTH_TOKEN, не в ANTHROPIC_API_KEY.",
+            file=sys.stderr,
+        )
+        return 2
+    if auth == "unreachable":
+        print(
+            "serve: не вдалося перевірити Anthropic-креденшл (мережа?). Стартую далі — "
+            "звернення можуть падати, поки звʼязок не відновиться.",
+            flush=True,
+        )
+
     morning = os.environ.get("MORNING_TIME", "07:00")
     evening = os.environ.get("EVENING_TIME", "22:00")
 
