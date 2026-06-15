@@ -39,6 +39,32 @@ def test_model_and_1m_overrides():
     assert c.use_1m_context is True
 
 
+def test_oauth_token_instead_of_api_key_is_valid():
+    # Claude subscription users authenticate with `claude setup-token`, not a
+    # console.anthropic.com key. Either credential satisfies auth.
+    env = {k: v for k, v in _VALID.items() if k != "ANTHROPIC_API_KEY"}
+    env["CLAUDE_CODE_OAUTH_TOKEN"] = "sk-ant-oat01-zzz"
+    c = ServiceConfig.from_env(env)
+    assert c.oauth_token == "sk-ant-oat01-zzz"
+    assert c.anthropic_api_key == ""
+
+
+def test_oauth_token_misplaced_in_api_key_is_rejected():
+    # The user's real mistake: pasting the setup-token into ANTHROPIC_API_KEY,
+    # which the API rejects as an x-api-key (401). Catch it with a clear nudge.
+    env = dict(_VALID, ANTHROPIC_API_KEY="sk-ant-oat01-zzz")
+    with pytest.raises(ConfigError, match="CLAUDE_CODE_OAUTH_TOKEN"):
+        ServiceConfig.from_env(env)
+
+
+def test_missing_auth_mentions_both_options():
+    env = {k: v for k, v in _VALID.items() if k != "ANTHROPIC_API_KEY"}
+    with pytest.raises(ConfigError) as ei:
+        ServiceConfig.from_env(env)
+    msg = str(ei.value)
+    assert "ANTHROPIC_API_KEY" in msg and "CLAUDE_CODE_OAUTH_TOKEN" in msg
+
+
 def test_missing_required_reports_all_at_once():
     with pytest.raises(ConfigError) as ei:
         ServiceConfig.from_env({})

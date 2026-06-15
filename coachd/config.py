@@ -73,7 +73,10 @@ class ServiceConfig:
 
     tg_bot_token: str
     owner_chat_ids: tuple[int, ...]
-    anthropic_api_key: str
+    # Exactly one of these carries the Anthropic credential; the bundled claude
+    # CLI reads whichever is in the environment (we don't pass it explicitly).
+    anthropic_api_key: str  # console.anthropic.com pay-as-you-go key, or ""
+    oauth_token: str  # `claude setup-token` subscription token, or ""
     user_name: str
     worn_start: date
     tz: str
@@ -93,7 +96,6 @@ class ServiceConfig:
             return val
 
         tg_bot_token = required("TG_BOT_TOKEN")
-        anthropic_api_key = required("ANTHROPIC_API_KEY")
         user_name = required("USER_NAME")
         tz = required("TZ")
         worn_raw = required("WORN_START")
@@ -128,6 +130,25 @@ class ServiceConfig:
             except Exception:
                 problems.append(f"TZ={tz!r} is not a valid timezone (e.g. Europe/Kyiv)")
 
+        # Anthropic auth: a pay-as-you-go key (ANTHROPIC_API_KEY) OR a Claude
+        # subscription token from `claude setup-token` (CLAUDE_CODE_OAUTH_TOKEN).
+        # Both start with "sk-ant-", but the OAuth token (sk-ant-oat…) is rejected
+        # when sent as an x-api-key — catch that mix-up explicitly.
+        anthropic_api_key = (env.get("ANTHROPIC_API_KEY") or "").strip()
+        oauth_token = (env.get("CLAUDE_CODE_OAUTH_TOKEN") or "").strip()
+        if anthropic_api_key.startswith("sk-ant-oat"):
+            problems.append(
+                "ANTHROPIC_API_KEY looks like a `claude setup-token` OAuth token "
+                "(sk-ant-oat…). Put it in CLAUDE_CODE_OAUTH_TOKEN and leave "
+                "ANTHROPIC_API_KEY empty — the API rejects an OAuth token sent as "
+                "an x-api-key."
+            )
+        elif not anthropic_api_key and not oauth_token:
+            problems.append(
+                "ANTHROPIC_API_KEY (a console.anthropic.com API key) or "
+                "CLAUDE_CODE_OAUTH_TOKEN (from `claude setup-token`) is required"
+            )
+
         tokenstore = (env.get(TOKENSTORE_ENV) or DEFAULT_TOKENSTORE).strip()
         model = (env.get("MODEL") or DEFAULT_MODEL).strip()
         use_1m = (env.get("USE_1M_CONTEXT") or "").strip().lower() in ("1", "true", "yes")
@@ -139,6 +160,7 @@ class ServiceConfig:
             tg_bot_token=tg_bot_token,
             owner_chat_ids=owner_ids,
             anthropic_api_key=anthropic_api_key,
+            oauth_token=oauth_token,
             user_name=user_name,
             worn_start=worn_start,
             tz=tz,
