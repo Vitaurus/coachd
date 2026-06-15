@@ -43,7 +43,7 @@ class _Exec:
         self.calls.append(action)
         if self._raise:
             raise self._raise
-        return "done"
+        return "✓ Створено і заплановано на 2026-06-16."
 
 
 def _bot(tmp_path, *, reply=None, executor=None, pending=None):
@@ -112,6 +112,9 @@ def test_confirm_callback_executes(tmp_path):
     assert ex.calls[0].tool == action.tool and ex.calls[0].input == action.input
     assert "answerCallbackQuery" in api.methods()
     assert pending.get("N1").status == "used"             # single-use
+    # the executor's status line reaches the user verbatim (incl. schedule outcome)
+    assert any(p.get("text") == "✓ Створено і заплановано на 2026-06-16."
+               for m, p in api.calls if m == "sendMessage")
 
 
 def test_confirm_stale_nonce_no_execute(tmp_path):

@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Callable
 
 from .adapters.anthropic_agent import AnthropicAgent, sdk_allow, sdk_deny
+from .adapters.composite_tools import COMPOSITE_TOOLS, SERVER_NAME, build_composite_server
 from .adapters.garmin_mcp_client import GarminMcpExecutor
 from .adapters.garmin_provider import GarminProvider
 from .adapters.telegram import TelegramMessenger
@@ -87,21 +88,27 @@ def build_app(
     pending = PendingStore(data_root / "pending.json")
     write_guard = make_write_guard(
         pending,
-        provider.write_tools(),
+        # parked writes = real garmin writes + our composite (create+schedule) tool
+        list(provider.write_tools()) + list(COMPOSITE_TOOLS),
         allow=sdk_allow,
         # the model sees this denial reason; the user-facing confirm caption is
         # default_confirm_message, sent by the bot with the buttons.
         deny=lambda action: sdk_deny(guard_deny_reason(action)),
     )
+    # The composite scheduling tool lives in an in-process SDK MCP server so its
+    # schema (which declares schedule_date) reaches the model — a schema-aware
+    # model only fills declared params, which is why a smuggled arg failed.
+    composite_server = build_composite_server()
+    chat_mcp_servers = {**provider.mcp_servers(), SERVER_NAME: composite_server}
     chat_agent = AnthropicAgent(
         model=config.model,
         system_prompt=system_prompt,
-        mcp_servers=provider.mcp_servers(),
-        # SECURITY: only READS are auto-approved. Write tools are deliberately
-        # NOT in allowed_tools — the SDK skips can_use_tool for anything listed
-        # here, so listing a write would auto-execute it and bypass the guard.
-        # MCP write tools stay callable (availability isn't gated by this list);
-        # being absent routes them through the guard, which parks them.
+        mcp_servers=chat_mcp_servers,
+        # SECURITY: only READS are auto-approved. Write tools (incl. the composite)
+        # are deliberately NOT in allowed_tools — the SDK skips can_use_tool for
+        # anything listed here, so listing a write would auto-execute it and bypass
+        # the guard. The tools stay callable (availability isn't gated by this
+        # list); being absent routes them through the guard, which parks them.
         allowed_tools=provider.read_tools(),
         can_use_tool=write_guard,
         use_1m_context=config.use_1m_context,
@@ -118,7 +125,16 @@ def build_app(
 
     # --- chat: history + the write-guarded agent; confirmed writes run direct ---
     session_store = SessionStore(data_root / "sessions.json")
-    chat_engine = ChatEngine(chat_agent=chat_agent, sessions=session_store, pending=pending)
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    _tz = ZoneInfo(config.tz)
+    chat_engine = ChatEngine(
+        chat_agent=chat_agent,
+        sessions=session_store,
+        pending=pending,
+        now=lambda: datetime.now(_tz),  # tz-aware so "завтра" → a real schedule_date
+    )
     executor = GarminMcpExecutor(provider.mcp_servers()["garmin"])
 
     owner_gate = OwnerGate(config.owner_chat_ids)
