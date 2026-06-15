@@ -39,13 +39,19 @@ Check token state anytime:
 docker compose run --rm coachd token-status   # prints: valid | missing | expired | unreachable
 ```
 
-### 2. Start the coach *(coming soon)*
+### 2. Start the coach
+Fill in `.env` (copy from `.env.example`): `TG_BOT_TOKEN`, `TG_CHAT_ID`,
+`ANTHROPIC_API_KEY`, `USER_NAME`, `WORN_START`, `TZ`. Then:
 ```bash
 docker compose up -d
 ```
-The long-running coach (scheduled reports + chat) is being built. Today
-`up` starts a placeholder that exits cleanly; the login bootstrap above is the
-working piece. Star/watch the repo to know when the loop lands.
+This runs the timezone-aware report scheduler (morning/evening verdicts pushed to
+Telegram; times via `MORNING_TIME`/`EVENING_TIME`, default 07:30/22:15). When a
+token expires you get a Telegram nudge to re-run `login`.
+
+Status: scheduled reports work. The interactive chat (ask questions, create
+workouts) is landing next. Report generation needs the bundled `claude` CLI in
+the image — see the Docker notes if you build it yourself.
 
 ## ⚠️ Disclaimers (read these)
 - **Not a medical device.** Estimates are approximate, no guarantees. Do not use
