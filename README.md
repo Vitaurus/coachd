@@ -17,7 +17,9 @@ Anthropic API key. Your data, your keys, your machine.
 ## Requirements
 - Docker + Docker Compose
 - A Garmin Connect account
-- An Anthropic API key
+- Anthropic access — either a pay-as-you-go API key from
+  [console.anthropic.com](https://console.anthropic.com), or a Claude Pro/Max
+  subscription (run `claude setup-token` to mint a token)
 
 ## Setup
 
@@ -58,7 +60,9 @@ docker compose run --rm -e TG_BOT_TOKEN=<token> coachd chat-id
 
 ### 3. Start the coach
 Fill in `.env` (copy from `.env.example`): `TG_BOT_TOKEN`, `TG_CHAT_ID`,
-`ANTHROPIC_API_KEY`, `USER_NAME`, `WORN_START`, `TZ`. Then:
+your Anthropic credential (`ANTHROPIC_API_KEY` **or** `CLAUDE_CODE_OAUTH_TOKEN`
+from `claude setup-token` — set one, not both), `USER_NAME`, `WORN_START`, `TZ`.
+Then:
 ```bash
 docker compose up -d
 ```
