@@ -39,7 +39,24 @@ Check token state anytime:
 docker compose run --rm coachd token-status   # prints: valid | missing | expired | unreachable
 ```
 
-### 2. Start the coach
+### 2. Get your Telegram chat id
+Create a bot with [@BotFather](https://t.me/BotFather), put its token in `.env`
+as `TG_BOT_TOKEN`, then send the bot any message. Run this **before**
+`docker compose up` — the running coach is the only allowed `getUpdates`
+consumer, so discovering while it's up returns a 409:
+
+```bash
+docker compose run --rm coachd chat-id
+```
+
+It prints each chat id that messaged the bot plus the exact line to paste:
+`TG_CHAT_ID=<id>` (comma-joined for a household). If you haven't filled
+`TG_BOT_TOKEN` into `.env` yet, pass it inline:
+```bash
+docker compose run --rm -e TG_BOT_TOKEN=<token> coachd chat-id
+```
+
+### 3. Start the coach
 Fill in `.env` (copy from `.env.example`): `TG_BOT_TOKEN`, `TG_CHAT_ID`,
 `ANTHROPIC_API_KEY`, `USER_NAME`, `WORN_START`, `TZ`. Then:
 ```bash

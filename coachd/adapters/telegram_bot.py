@@ -15,8 +15,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import urllib.parse
-import urllib.request
 from pathlib import Path
 from typing import Callable
 
@@ -25,25 +23,7 @@ from ..core.pending import PendingStore
 from ..security.authenticator import OwnerGate
 from ..security.write_guard import default_confirm_message
 from .garmin_mcp_client import bare_tool
-from .telegram import chunk_message
-
-
-def _default_api(token: str) -> Callable[[str, dict], object]:
-    base = f"https://api.telegram.org/bot{token}/"
-
-    def api(method: str, params: dict | None = None) -> object:
-        params = {k: v for k, v in (params or {}).items() if v is not None}
-        url = base + method
-        if method == "getUpdates":
-            if params:
-                url += "?" + urllib.parse.urlencode(params)
-            with urllib.request.urlopen(url, timeout=40) as r:
-                return json.loads(r.read().decode("utf-8")).get("result")
-        data = urllib.parse.urlencode(params).encode()
-        with urllib.request.urlopen(url, data=data, timeout=40) as r:
-            return json.loads(r.read().decode("utf-8")).get("result")
-
-    return api
+from .telegram import chunk_message, make_api
 
 
 class TelegramBot:
@@ -63,7 +43,7 @@ class TelegramBot:
         self._pending = pending
         self._executor = executor
         self._offset_path = Path(offset_path)
-        self._api = api or _default_api(token)
+        self._api = api or make_api(token)
 
     # --- sending --------------------------------------------------------- #
     def _send(self, chat_id: object, text: str) -> None:
