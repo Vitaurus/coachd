@@ -72,7 +72,11 @@ def test_run_turn_builds_options_and_returns_result():
         return SimpleNamespace(**kw)
 
     async def fake_query(*, prompt, options):
-        captured["prompt"] = prompt
+        # can_use_tool is set → the SDK demands streaming mode, so the adapter
+        # must hand us an AsyncIterable, not a string. Drain it to capture the
+        # one user message it yields.
+        captured["prompt_type"] = type(prompt).__name__
+        captured["stream"] = [m async for m in prompt]
         for m in (_assistant("partial"), _result(result="verdict", cost=0.03)):
             yield m
 
@@ -99,7 +103,13 @@ def test_run_turn_builds_options_and_returns_result():
     assert captured["max_budget_usd"] == 1.5
     assert captured["model"] == "opus[1m]"
     assert captured["allowed_tools"] == ["mcp__garmin__get_sleep_summary"]
-    assert captured["prompt"] == "today's prompt"
+    # streaming mode: a single user message in the SDK's expected shape
+    assert captured["stream"] == [{
+        "type": "user",
+        "message": {"role": "user", "content": "today's prompt"},
+        "parent_tool_use_id": None,
+        "session_id": "default",
+    }]
 
 
 def test_run_turn_no_1m_sends_empty_betas():
@@ -110,6 +120,7 @@ def test_run_turn_no_1m_sends_empty_betas():
         return SimpleNamespace(**kw)
 
     async def fake_query(*, prompt, options):
+        captured["prompt"] = prompt
         yield _result(result="ok", cost=0.0)
 
     agent = AnthropicAgent(
@@ -123,3 +134,5 @@ def test_run_turn_no_1m_sends_empty_betas():
     )
     asyncio.run(agent.run_turn("p"))
     assert captured["betas"] == []
+    # no can_use_tool → simpler string mode (the read-only report path)
+    assert captured["prompt"] == "p"
