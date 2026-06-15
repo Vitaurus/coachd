@@ -16,6 +16,8 @@ dependencies = [
     # that binary; see Dockerfile. The adapter imports this lazily, so unit tests
     # (which inject a fake query) need neither this package resolved nor the CLI.
     "claude-agent-sdk==0.2.101",
+    # In-process cron for the morning/evening report jobs (timezone-aware).
+    "apscheduler==3.11.2",
 ]
 
 [project.optional-dependencies]

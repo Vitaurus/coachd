@@ -47,16 +47,57 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if state is TokenState.VALID else 1
 
     if command == "serve":
-        # Placeholder until the coach loop (scheduler + bot) lands. Exits cleanly
-        # so `docker compose up` does not crash-loop on an unbuilt service.
-        print(
-            "serve: not implemented yet — the coach loop is in progress.\n"
-            "Token bootstrap works today: `docker compose run --rm coachd login`."
-        )
-        return 0
+        return _serve()
 
     print(f"unknown command: {command}\n{_USAGE}", file=sys.stderr)
     return 2
+
+
+def _serve() -> int:
+    """Run the long-running coach: timezone-aware report scheduler.
+
+    Chat (the interactive bot) lands next; today serve fires the morning/evening
+    reports. Agent turns require the bundled `claude` CLI at runtime (see Docker).
+    """
+    import asyncio
+    import os
+
+    from .app import build_app
+    from .auth.garmin_login import token_status
+    from .config import ConfigError, ServiceConfig
+    from .scheduler import ReportScheduler
+
+    try:
+        config = ServiceConfig.from_env()
+    except ConfigError as exc:
+        print(f"config error:\n{exc}", file=sys.stderr)
+        return 2
+
+    morning = os.environ.get("MORNING_TIME", "07:00")
+    evening = os.environ.get("EVENING_TIME", "22:00")
+
+    async def _run() -> None:
+        app = build_app(config)
+        scheduler = ReportScheduler(
+            app,
+            morning=morning,
+            evening=evening,
+            token_state_fn=lambda ts: token_status(ts),
+        )
+        scheduler.start()
+        print(
+            f"coachd serve: report scheduler started "
+            f"(morning {morning}, evening {evening}, TZ {config.tz}). "
+            f"Chat lands next.",
+            flush=True,
+        )
+        await asyncio.Event().wait()  # run until the container stops
+
+    try:
+        asyncio.run(_run())
+    except KeyboardInterrupt:
+        print("\ncoachd serve: stopped.")
+    return 0
 
 
 if __name__ == "__main__":
