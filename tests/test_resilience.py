@@ -2,7 +2,15 @@
 
 from __future__ import annotations
 
-from coachd.core.resilience import RetryPolicy, RunState, classify, run_with_retry
+import asyncio
+
+from coachd.core.resilience import (
+    RetryPolicy,
+    RunState,
+    classify,
+    run_with_retry,
+    run_with_retry_async,
+)
 
 _FAST = RetryPolicy(max_tries=3, retry_wait_s=240.0)
 
@@ -78,3 +86,38 @@ def test_error_state_propagates():
         sleep=lambda _s: None,
     )
     assert state is RunState.ERROR
+
+
+# --- async twin ------------------------------------------------------------- #
+def test_async_ok_first_attempt_no_sleep():
+    sleeps: list[float] = []
+
+    async def _sleep(s):
+        sleeps.append(s)
+
+    async def _run():
+        return (0, "DATA")
+
+    state, out = asyncio.run(
+        run_with_retry_async(_run, _has_core, _FAST, sleep=_sleep)
+    )
+    assert state is RunState.OK
+    assert sleeps == []
+
+
+def test_async_empty_then_ok_sleeps_once():
+    outputs = iter([(0, "empty"), (0, "DATA now")])
+    sleeps: list[float] = []
+
+    async def _sleep(s):
+        sleeps.append(s)
+
+    async def _run():
+        return next(outputs)
+
+    state, out = asyncio.run(
+        run_with_retry_async(_run, _has_core, _FAST, sleep=_sleep)
+    )
+    assert state is RunState.OK
+    assert out == "DATA now"
+    assert sleeps == [240.0]
