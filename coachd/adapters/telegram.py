@@ -12,9 +12,11 @@ post is injected so the messenger is tested without the network.
 
 from __future__ import annotations
 
+import json
 import urllib.error
 import urllib.parse
 import urllib.request
+from dataclasses import dataclass
 from typing import Callable
 
 LIMIT = 4000  # Telegram hard limit is 4096; leave headroom
@@ -72,3 +74,80 @@ class TelegramMessenger:
             }).encode()
             self._post(self._url, data)
         return len(chunks)
+
+
+# --------------------------------------------------------------------------- #
+# Telegram Bot API access (shared by the bot daemon and the chat-id command)
+# --------------------------------------------------------------------------- #
+def make_api(token: str) -> Callable[[str, dict | None], object]:
+    """Return an ``api(method, params)`` callable over the Telegram Bot API.
+
+    GET for ``getUpdates`` (long-poll friendly), POST otherwise. Returns the
+    decoded ``result`` field. HTTP errors (e.g. 409 conflict, 401 bad token)
+    propagate as ``urllib.error.HTTPError`` for the caller to classify.
+    """
+    base = f"https://api.telegram.org/bot{token}/"
+
+    def api(method: str, params: dict | None = None) -> object:
+        params = {k: v for k, v in (params or {}).items() if v is not None}
+        url = base + method
+        if method == "getUpdates":
+            if params:
+                url += "?" + urllib.parse.urlencode(params)
+            with urllib.request.urlopen(url, timeout=40) as r:
+                return json.loads(r.read().decode("utf-8")).get("result")
+        data = urllib.parse.urlencode(params).encode()
+        with urllib.request.urlopen(url, data=data, timeout=40) as r:
+            return json.loads(r.read().decode("utf-8")).get("result")
+
+    return api
+
+
+@dataclass(frozen=True)
+class ChatRef:
+    id: int
+    label: str
+    type: str
+
+
+def _chat_label(chat: dict) -> str:
+    """A human label for a chat; falls back to the id when no name field exists."""
+    for key in ("first_name", "username", "title"):
+        value = chat.get(key)
+        if value:
+            return str(value)
+    return str(chat.get("id", "?"))
+
+
+def parse_chat_ids(updates: list | None) -> list[ChatRef]:
+    """Extract unique chat refs from getUpdates results, first-seen order.
+
+    Walks ``message`` / ``edited_message`` only — a first-time user discovering
+    their id sends a text message; ``callback_query`` only fires after onboarding.
+    """
+    out: list[ChatRef] = []
+    seen: set = set()
+    for update in updates or []:
+        msg = update.get("message") or update.get("edited_message")
+        if not msg:
+            continue
+        chat = msg.get("chat") or {}
+        cid = chat.get("id")
+        if cid is None or cid in seen:
+            continue
+        seen.add(cid)
+        out.append(ChatRef(id=cid, label=_chat_label(chat), type=chat.get("type", "?")))
+    return out
+
+
+def discover_chat_ids(token: str, *, api: Callable[[str, dict | None], object] | None = None) -> list[ChatRef]:
+    """deleteWebhook (avoid 409 if a webhook was set) + getUpdates + parse.
+
+    ``api`` is injectable for tests. HTTP errors propagate to the caller, which
+    maps 409 (a running bot is already consuming getUpdates) and 401 (bad token)
+    to actionable messages.
+    """
+    api = api or make_api(token)
+    api("deleteWebhook", {})
+    updates = api("getUpdates", {}) or []
+    return parse_chat_ids(updates)
