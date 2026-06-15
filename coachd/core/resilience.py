@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Callable
+from typing import Awaitable, Callable
 
 
 class RunState(str, Enum):
@@ -61,4 +61,32 @@ def run_with_retry(
             break
         if attempt < policy.max_tries:
             sleep(policy.retry_wait_s)
+    return state, output
+
+
+async def run_with_retry_async(
+    run: Callable[[], Awaitable[tuple[int, str]]],
+    has_core_data: Callable[[str], bool],
+    policy: RetryPolicy = RetryPolicy(),
+    *,
+    sleep: Callable[[float], Awaitable[None]],
+    on_attempt: Callable[[int, RunState], None] | None = None,
+) -> tuple[RunState, str]:
+    """Async twin of :func:`run_with_retry` (same classification, awaited run/sleep).
+
+    Used by the engine because an agent turn is async. ``sleep`` is injected
+    (asyncio.sleep in production, a no-op recorder in tests) so the retry timing
+    is verified without real elapsed time.
+    """
+    state = RunState.ERROR
+    output = ""
+    for attempt in range(1, policy.max_tries + 1):
+        rc, output = await run()
+        state = classify(rc, output, has_core_data=has_core_data)
+        if on_attempt is not None:
+            on_attempt(attempt, state)
+        if state is RunState.OK:
+            break
+        if attempt < policy.max_tries:
+            await sleep(policy.retry_wait_s)
     return state, output
