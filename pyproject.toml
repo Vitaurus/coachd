@@ -12,6 +12,10 @@ requires-python = ">=3.12"
 # deliberately, never float.
 dependencies = [
     "garminconnect==0.3.6",
+    # Claude Agent SDK wraps the `claude` CLI (Node) — the runtime image must ship
+    # that binary; see Dockerfile. The adapter imports this lazily, so unit tests
+    # (which inject a fake query) need neither this package resolved nor the CLI.
+    "claude-agent-sdk==0.2.101",
 ]
 
 [project.optional-dependencies]
