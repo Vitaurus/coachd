@@ -77,15 +77,23 @@ def test_report_agent_is_readonly_chat_agent_is_guarded(tmp_path):
         query_fn=fake_query, options_cls=fake_options, post=lambda u, d: None,
     )
 
-    # report agent: no write tools, no guard
+    # report agent: read-only, no guard
     rep = app.engine._llm._build_options()
     assert not any("upload_workout" in t for t in rep.allowed_tools)
     assert rep.can_use_tool is None
 
-    # chat agent: write tools present AND every write routed through the guard
+    # chat agent: reads auto-approved, writes routed through the guard.
+    # SECURITY REGRESSION: the SDK skips can_use_tool for anything in
+    # allowed_tools, so a write listed there auto-executes and BYPASSES the
+    # guard (this exact mistake shipped a workout with no confirmation). Writes
+    # must be ABSENT from allowed_tools — MCP keeps them callable, and the guard
+    # (can_use_tool) parks them. allowed_tools must equal the read set, no more.
     chat = app.chat_agent._build_options()
-    assert any("upload_workout" in t for t in chat.allowed_tools)
-    assert chat.can_use_tool is not None
+    assert chat.allowed_tools == rep.allowed_tools          # reads only, == report agent
+    assert not any("upload_workout" in t for t in chat.allowed_tools)
+    assert not any("create_walk_run_workout" in t for t in chat.allowed_tools)
+    assert not any("schedule_workout" in t for t in chat.allowed_tools)
+    assert chat.can_use_tool is not None                    # the guard is wired
 
 
 def test_owner_gate_wired(tmp_path):
