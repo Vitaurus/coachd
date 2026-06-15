@@ -25,6 +25,11 @@ from ..security.write_guard import default_confirm_message
 from .garmin_mcp_client import bare_tool
 from .telegram import chunk_message, make_api
 
+# Sent the instant an owner message arrives, before the (multi-second) agent
+# turn — so the user knows the question was received and is being worked on.
+# Ported verbatim from the reference chatbot's "⏳ дивлюсь дані…" ack.
+ACK_TEXT = "⏳ дивлюсь дані…"
+
 
 class TelegramBot:
     def __init__(
@@ -83,6 +88,7 @@ class TelegramBot:
         if not text:
             return  # v1: text only (voice is v1.1)
 
+        self._send(chat_id, ACK_TEXT)  # "received, working on it" — the turn is slow
         reply = await self._chat.run_chat(chat_id, text)
         self._send(chat_id, reply.text)
         for action in reply.pending:
