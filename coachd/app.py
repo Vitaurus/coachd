@@ -95,7 +95,12 @@ def build_app(
         model=config.model,
         system_prompt=system_prompt,
         mcp_servers=provider.mcp_servers(),
-        allowed_tools=provider.read_tools() + provider.write_tools(),
+        # SECURITY: only READS are auto-approved. Write tools are deliberately
+        # NOT in allowed_tools — the SDK skips can_use_tool for anything listed
+        # here, so listing a write would auto-execute it and bypass the guard.
+        # MCP write tools stay callable (availability isn't gated by this list);
+        # being absent routes them through the guard, which parks them.
+        allowed_tools=provider.read_tools(),
         can_use_tool=write_guard,
         use_1m_context=config.use_1m_context,
         query_fn=query_fn,
