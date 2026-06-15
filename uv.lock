@@ -222,6 +222,7 @@ dependencies = [
     { name = "apscheduler" },
     { name = "claude-agent-sdk" },
     { name = "garminconnect" },
+    { name = "mcp" },
 ]
 
 [package.optional-dependencies]
@@ -234,6 +235,7 @@ requires-dist = [
     { name = "apscheduler", specifier = "==3.11.2" },
     { name = "claude-agent-sdk", specifier = "==0.2.101" },
     { name = "garminconnect", specifier = "==0.3.6" },
+    { name = "mcp", specifier = ">=1.23.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
 ]
 provides-extras = ["dev"]
