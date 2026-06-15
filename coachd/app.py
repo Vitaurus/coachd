@@ -33,7 +33,7 @@ from .core.pending import PendingStore
 from .core.prompts import build_system_prompt
 from .core.session_store import SessionStore
 from .security.authenticator import OwnerGate
-from .security.write_guard import default_confirm_message, make_write_guard
+from .security.write_guard import guard_deny_reason, make_write_guard
 
 
 def load_methodology() -> str:
@@ -89,7 +89,9 @@ def build_app(
         pending,
         provider.write_tools(),
         allow=sdk_allow,
-        deny=lambda action: sdk_deny(default_confirm_message(action)),
+        # the model sees this denial reason; the user-facing confirm caption is
+        # default_confirm_message, sent by the bot with the buttons.
+        deny=lambda action: sdk_deny(guard_deny_reason(action)),
     )
     chat_agent = AnthropicAgent(
         model=config.model,

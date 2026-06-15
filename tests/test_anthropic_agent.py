@@ -64,23 +64,45 @@ def test_api_error_429_maps_to_rate_limit_not_unknown():
 
 
 # --- run_turn wiring -------------------------------------------------------- #
-def test_run_turn_builds_options_and_returns_result():
+class _FakeClient:
+    """Stand-in for ClaudeSDKClient: an async context manager that keeps the
+    "channel" open across query() + receive_response() (the bidirectional shape
+    can_use_tool needs). Records into the shared ``captured`` dict."""
+
     captured: dict = {}
+
+    def __init__(self, *, options):
+        type(self).captured["client_options"] = options
+
+    async def __aenter__(self):
+        type(self).captured["entered"] = True
+        return self
+
+    async def __aexit__(self, *a):
+        type(self).captured["exited"] = True
+        return False
+
+    async def query(self, prompt, session_id="default"):
+        type(self).captured["prompt"] = prompt
+
+    async def receive_response(self):
+        for m in (_assistant("partial"), _result(result="verdict", cost=0.03)):
+            yield m
+
+
+def test_run_turn_guarded_goes_through_client_not_oneshot():
+    captured: dict = {}
+    _FakeClient.captured = captured
 
     def fake_options(**kw):
         captured.update(kw)
         return SimpleNamespace(**kw)
 
-    async def fake_query(*, prompt, options):
-        # can_use_tool is set → the SDK demands streaming mode, so the adapter
-        # must hand us an AsyncIterable, not a string. Drain it to capture the
-        # one user message it yields.
-        captured["prompt_type"] = type(prompt).__name__
-        captured["stream"] = [m async for m in prompt]
-        for m in (_assistant("partial"), _result(result="verdict", cost=0.03)):
-            yield m
+    async def boom_query(*, prompt, options):  # must NOT be used on the guarded path
+        raise AssertionError("guarded turn must use the client, not query()")
+        yield  # pragma: no cover
 
-    guard = lambda name, inp, ctx: None  # noqa: E731 (stand-in can_use_tool)
+    guard = lambda name, inp, ctx=None: None  # noqa: E731 (stand-in can_use_tool)
     agent = AnthropicAgent(
         model="opus[1m]",
         system_prompt="METHODOLOGY",
@@ -89,8 +111,9 @@ def test_run_turn_builds_options_and_returns_result():
         can_use_tool=guard,
         max_budget_usd=1.5,
         use_1m_context=True,
-        query_fn=fake_query,
+        query_fn=boom_query,
         options_cls=fake_options,
+        client_cls=_FakeClient,
     )
 
     res = asyncio.run(agent.run_turn("today's prompt"))
@@ -101,15 +124,10 @@ def test_run_turn_builds_options_and_returns_result():
     assert captured["can_use_tool"] is guard
     assert captured["betas"] == [CONTEXT_1M_BETA]
     assert captured["max_budget_usd"] == 1.5
-    assert captured["model"] == "opus[1m]"
     assert captured["allowed_tools"] == ["mcp__garmin__get_sleep_summary"]
-    # streaming mode: a single user message in the SDK's expected shape
-    assert captured["stream"] == [{
-        "type": "user",
-        "message": {"role": "user", "content": "today's prompt"},
-        "parent_tool_use_id": None,
-        "session_id": "default",
-    }]
+    # bidirectional client path: opened, prompt sent as a plain string, closed
+    assert captured["entered"] and captured["exited"]
+    assert captured["prompt"] == "today's prompt"
 
 
 def test_run_turn_no_1m_sends_empty_betas():

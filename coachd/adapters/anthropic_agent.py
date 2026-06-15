@@ -87,11 +87,15 @@ def sdk_allow() -> object:
 def sdk_deny(message: str) -> object:
     """Build the SDK's deny result for a parked write.
 
-    ``interrupt=True`` stops the turn so the agent does not keep retrying the
-    denied write — the action is parked and the user confirms out-of-band.
+    ``interrupt=False``: the write is already parked, so we let the turn finish
+    normally — the model receives ``message`` as the denial reason, stops, and
+    summarises the proposal for the user. ``interrupt=True`` would abort the turn
+    with an error result (raising LLMError downstream and discarding both the
+    model's explanation and — via the error branch — the parked action), so the
+    confirm buttons never reached the user.
     """
     from claude_agent_sdk import PermissionResultDeny
-    return PermissionResultDeny(behavior="deny", message=message, interrupt=True)
+    return PermissionResultDeny(behavior="deny", message=message, interrupt=False)
 
 
 class AnthropicAgent:
@@ -114,6 +118,7 @@ class AnthropicAgent:
         cli_path: str | None = None,
         query_fn: Callable[..., object] | None = None,
         options_cls: Callable[..., object] | None = None,
+        client_cls: Callable[..., object] | None = None,
     ) -> None:
         self._model = model
         self._system_prompt = system_prompt
@@ -127,6 +132,7 @@ class AnthropicAgent:
         # resolved at import time nor the claude CLI present.
         self._query_fn = query_fn
         self._options_cls = options_cls
+        self._client_cls = client_cls
 
     def _build_options(self):
         if self._options_cls is not None:
@@ -146,29 +152,36 @@ class AnthropicAgent:
         )
 
     async def run_turn(self, prompt: str) -> AgentResult:
+        options = self._build_options()
+        if self._can_use_tool is not None:
+            return await self._run_turn_guarded(prompt, options)
+        return await self._run_turn_oneshot(prompt, options)
+
+    async def _run_turn_oneshot(self, prompt: str, options) -> AgentResult:
+        """Read-only path (reports): a one-shot string query. No permission
+        round-trip, so the SDK may close stdin right after the prompt — fine."""
         if self._query_fn is not None:
             query_fn = self._query_fn
         else:
             from claude_agent_sdk import query as query_fn
-        options = self._build_options()
-        messages: list[object] = []
-        # The SDK rejects a plain-string prompt whenever a can_use_tool callback
-        # is set ("requires streaming mode"): the permission hook needs the
-        # bidirectional channel that only the AsyncIterable input opens. Wrap the
-        # single turn into a one-message stream in that case. The read-only report
-        # path has no guard, so it keeps the simpler string mode.
-        prompt_arg = _as_stream(prompt) if self._can_use_tool is not None else prompt
-        async for msg in query_fn(prompt=prompt_arg, options=options):
-            messages.append(msg)
+        messages = [msg async for msg in query_fn(prompt=prompt, options=options)]
         return extract_result(messages)
 
-
-async def _as_stream(text: str):
-    """One-shot streaming-mode input: a single user message, shaped as the SDK
-    expects (see claude_agent_sdk.query streaming example)."""
-    yield {
-        "type": "user",
-        "message": {"role": "user", "content": text},
-        "parent_tool_use_id": None,
-        "session_id": "default",
-    }
+    async def _run_turn_guarded(self, prompt: str, options) -> AgentResult:
+        """Write-guarded path (chat): the can_use_tool permission round-trip needs
+        stdin open for the WHOLE turn. The one-shot ``query()`` closes stdin right
+        after the prompt unless SDK-MCP servers / hooks are present (we have a
+        stdio MCP and no hooks), so the CLI's permission request hits a closed
+        stream ("Stream closed") and the guard never fires. ``ClaudeSDKClient``
+        keeps the bidirectional channel open until the result — the supported way
+        to use can_use_tool."""
+        if self._client_cls is not None:
+            client_cls = self._client_cls
+        else:
+            from claude_agent_sdk import ClaudeSDKClient as client_cls
+        messages: list[object] = []
+        async with client_cls(options=options) as client:
+            await client.query(prompt)
+            async for msg in client.receive_response():
+                messages.append(msg)
+        return extract_result(messages)
