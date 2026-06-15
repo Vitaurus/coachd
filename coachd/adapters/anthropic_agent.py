@@ -78,6 +78,22 @@ def extract_result(messages: Iterable[object]) -> AgentResult:
     return AgentResult(text=text, cost_usd=cost, usage=usage)
 
 
+def sdk_allow() -> object:
+    """Build the SDK's allow result (reads pass through)."""
+    from claude_agent_sdk import PermissionResultAllow
+    return PermissionResultAllow(behavior="allow", updated_input=None, updated_permissions=None)
+
+
+def sdk_deny(message: str) -> object:
+    """Build the SDK's deny result for a parked write.
+
+    ``interrupt=True`` stops the turn so the agent does not keep retrying the
+    denied write — the action is parked and the user confirms out-of-band.
+    """
+    from claude_agent_sdk import PermissionResultDeny
+    return PermissionResultDeny(behavior="deny", message=message, interrupt=True)
+
+
 class AnthropicAgent:
     """LLMPort over the Claude Agent SDK.
 
