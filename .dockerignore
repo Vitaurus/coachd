@@ -1,0 +1,15 @@
+# Keep secrets, reference, and local state OUT of the build context entirely.
+garmin/
+garmin-coach-HANDOFF.md
+.env
+data/
+.git/
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+tests/
+*.egg-info/
+dist/
+build/
+.DS_Store

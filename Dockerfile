@@ -1,5 +1,5 @@
-# Minimal image for the #0 bootstrap. The MCP pre-bake (architecture decision A1)
-# and the runtime deps for the coach loop are added when `serve` lands.
+# Runtime image for the coach. Heavier than pip-only because the Claude Agent SDK
+# spawns the `claude` CLI (Node), so the CLI is bundled here.
 FROM python:3.12-slim
 
 # UTF-8 everywhere: the slim base defaults to ASCII, so a non-ASCII (e.g.
@@ -10,14 +10,37 @@ ENV LANG=C.UTF-8 \
     PYTHONUTF8=1 \
     PYTHONIOENCODING=utf-8 \
     GARMINTOKENS=/data/garmin \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    PATH="/root/.local/bin:$PATH"
+
+# System deps: Node 20 + the claude CLI (the Agent SDK's backend), git (for the
+# pinned MCP install), curl/ca-certificates/gnupg (for the NodeSource setup).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl git ca-certificates gnupg \
+    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && npm install -g @anthropic-ai/claude-code \
+    && npm cache clean --force \
+    && apt-get purge -y gnupg \
+    && apt-get autoremove -y \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# A1: pre-bake the Garmin MCP at a PINNED commit (no runtime git pull → no
+# network-SPOF on start, deterministic image). It is installed in its OWN
+# isolated env via pipx, because it pins garminconnect==0.3.2 while coachd needs
+# 0.3.6 — they cannot share a venv. The MCP runs as a separate stdio subprocess,
+# so isolation is the correct boundary anyway. The `garmin-mcp` shim lands on
+# PATH (/root/.local/bin) where GarminProvider's default command finds it.
+RUN pip install --no-cache-dir pipx \
+    && pipx install "git+https://github.com/Taxuspt/garmin_mcp@7af73ebf9b4073cf3b1ad1cb42d351f38e7ef47c"
 
 WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY coachd ./coachd
 RUN pip install --no-cache-dir .
 
-# `docker compose run --rm coachd login`  → python -m coachd login
-# `docker compose up`                      → python -m coachd serve (placeholder)
+# `docker compose run --rm coachd login` → python -m coachd login
+# `docker compose up`                      → python -m coachd serve (report scheduler)
 ENTRYPOINT ["python", "-m", "coachd"]
 CMD ["serve"]
