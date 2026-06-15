@@ -19,7 +19,9 @@ services:
       # every restart/recreate. ./data is gitignored + dockerignored (it carries
       # the OAuth tokens), so all state persists on the host safely.
       - ./data:/data
-    restart: "no"
+    # auto-recover from a crash or host reboot; `docker compose stop/down` still
+    # stops it (we don't fight an explicit stop).
+    restart: unless-stopped
 
 # One-time interactive Garmin login (allocates a TTY for password + MFA):
 #   docker compose run --rm coachd login
