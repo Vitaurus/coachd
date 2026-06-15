@@ -29,9 +29,25 @@ DenyBuilder = Callable[[PendingAction], object]
 
 
 def default_confirm_message(action: PendingAction) -> str:
+    """USER-facing caption shown above the Telegram confirm/cancel buttons."""
     return (
         f"⏸ Дія потребує підтвердження: {action.tool}\n"
         f"Підтвердь або скасуй у Telegram (#{action.nonce})."
+    )
+
+
+def guard_deny_reason(action: PendingAction) -> str:
+    """MODEL-facing denial reason (the SDK delivers this as the tool result).
+
+    The write is already parked for out-of-band confirmation, so instruct the
+    model to stop trying to write and to summarise its proposal — the user gets
+    the confirm buttons separately. Without the "do not retry" steer the model
+    would attempt other write tools and park duplicates."""
+    return (
+        "Цю дію поставлено в чергу на підтвердження користувача в Telegram. "
+        "НЕ викликай інструменти запису повторно і не шукай інший спосіб залити дані. "
+        "Натомість коротко підсумуй користувачу, що ти пропонуєш (тип, тривалість, "
+        "зони/цілі) — кнопки підтвердження він побачить окремо."
     )
 
 
