@@ -12,6 +12,10 @@ Anthropic API key. Your data, your keys, your machine.
 - **Reports** — a morning/evening verdict pushed to Telegram, computed from your
   Garmin metrics (HRV, recovery, training load, sleep).
 - **Chat** — ask "why am I tired today?" and get an answer over your live data.
+  Send a **photo** (a meal, a Garmin screenshot, a training plan) or a **voice
+  note** — voice is transcribed on your box by local whisper, no audio leaves the
+  host. Tune the model in `.env` (`WHISPER_MODEL`, default `small`; use `medium`
+  for better Ukrainian/accented accuracy), or set `VOICE_ENABLED=false` to skip it.
 - **Action** — create and upload workouts to your watch (always confirmation-first).
 
 ## Requirements

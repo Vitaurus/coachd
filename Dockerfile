@@ -38,7 +38,13 @@ RUN pip install --no-cache-dir pipx \
 WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY coachd ./coachd
-RUN pip install --no-cache-dir .
+# `.[voice]` pulls faster-whisper (local CPU STT) so Telegram voice notes work
+# out of the box. It bundles `av` (ffmpeg) + ctranslate2 — a few hundred MB, the
+# cost of on-box transcription with no API and no audio leaving the host. The
+# whisper model itself is NOT baked: it downloads once at first boot to
+# /data/whisper (a mounted volume → persists across restarts). Set VOICE_ENABLED=
+# false to keep voice off; faster-whisper is imported lazily so it idles for free.
+RUN pip install --no-cache-dir ".[voice]"
 
 # `docker compose run --rm coachd login` → python -m coachd login
 # `docker compose up`                      → python -m coachd serve (report scheduler)
