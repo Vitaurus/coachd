@@ -44,6 +44,7 @@ class TelegramBot:
         download: Callable[[str], tuple[bytes, str]] | None = None,
         transcriber: "TranscriberPort | None" = None,
         max_voice_seconds: int = 300,
+        voice_pending: bool = False,
     ) -> None:
         self._owner_gate = owner_gate
         self._chat = chat_engine
@@ -62,12 +63,25 @@ class TelegramBot:
         # once the model is ready, so text serves immediately while voice warms up.
         self._transcriber = transcriber
         self._max_voice_seconds = max_voice_seconds
+        # voice_pending distinguishes "still loading" from "off": True when voice
+        # is enabled and the model is on its way (the background loader will call
+        # set_transcriber or mark_voice_unavailable). It lets _handle_voice send a
+        # transient "warming up, retry" line instead of the permanent off line —
+        # the gap a user hits with a slow first-boot download (e.g. the medium model).
+        self._voice_pending = voice_pending
 
     def set_transcriber(self, transcriber: "TranscriberPort") -> None:
         """Enable voice once the model has finished loading (called by the
         background loader). A plain attribute write — safe because the same single
         event-loop thread reads it in handle_update; no lock needed."""
         self._transcriber = transcriber
+        self._voice_pending = False  # loaded → no longer pending
+
+    def mark_voice_unavailable(self) -> None:
+        """Give up on voice (called by the background loader when load fails): clear
+        the pending flag so _handle_voice sends the permanent off line, not the
+        transient "still loading" one. The transcriber stays None (voice off)."""
+        self._voice_pending = False
 
     # --- sending --------------------------------------------------------- #
     def _send(self, chat_id: object, text: str) -> None:
@@ -180,9 +194,11 @@ class TelegramBot:
         — no single-flight lock is needed unless a future change dispatches updates
         concurrently (then add one)."""
         if self._transcriber is None:
-            # model still warming up, load failed, or voice disabled — one neutral
-            # line covers all three (no load-state is tracked to tell them apart)
-            self._send(chat_id, self._strings.get("voice_unavailable"))
+            # voice_pending tells "still warming up" (transient — retry) apart from
+            # "load failed / disabled" (permanent — type instead). Without it a slow
+            # first-boot model download looks identical to voice being off.
+            key = "voice_loading" if self._voice_pending else "voice_unavailable"
+            self._send(chat_id, self._strings.get(key))
             return
         # Reject an over-long (or accidental) note BEFORE downloading: STT on CPU
         # runs near real-time and the poll loop AWAITS transcribe, so a long clip
