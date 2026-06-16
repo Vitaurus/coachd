@@ -2,7 +2,31 @@
 
 from __future__ import annotations
 
-from coachd.adapters.telegram import LIMIT, TelegramMessenger, chunk_message
+from coachd.adapters.telegram import LIMIT, TelegramMessenger, chunk_message, strip_markdown
+
+
+def test_strip_markdown_removes_bold_code_headers():
+    assert strip_markdown("**Readiness 87**") == "Readiness 87"
+    assert strip_markdown("__bold__ and `code`") == "bold and code"
+    assert strip_markdown("# Heading\ntext") == "Heading\ntext"
+    assert strip_markdown("## Sub — note") == "Sub — note"
+
+
+def test_strip_markdown_leaves_plain_text_and_legit_asterisks():
+    # single * / _ stay (legit "5*5 sets"); emoji + catalog text untouched
+    assert strip_markdown("5*5 sets at Z2") == "5*5 sets at Z2"
+    assert strip_markdown("⏸ Action needs confirmation: x") == "⏸ Action needs confirmation: x"
+    # idempotent on already-clean text
+    clean = "Readiness 87 — HIGH. Sleep 91/EXCELLENT."
+    assert strip_markdown(clean) == clean
+
+
+def test_messenger_strips_markdown_before_send():
+    posts: list = []
+    m = TelegramMessenger("tok", 1, post=lambda url, data: posts.append(data))
+    m.send("**Readiness 87 — HIGH.**")
+    assert b"%2A%2A" not in posts[0]            # the ** is gone (not URL-encoded either)
+    assert b"Readiness+87" in posts[0]
 
 
 def test_short_text_single_chunk():

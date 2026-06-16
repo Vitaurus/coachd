@@ -24,6 +24,13 @@ def test_system_prompt_carries_methodology_and_fragment():
     assert "GARMIN-FRAGMENT" in sp
 
 
+def test_system_prompt_forbids_markdown_for_both_agents():
+    # the chat agent has no report tail — the no-markdown rule must be system-level
+    sp = build_system_prompt("M", "F", language="Ukrainian")
+    assert "markdown" in sp.lower()
+    assert "Respond in Ukrainian" in sp
+
+
 def test_morning_prompt_has_focus_journal_keys_and_dayworn():
     p = build_report_prompt(
         "morning", TODAY, "2026-06-15 07:00 EEST",

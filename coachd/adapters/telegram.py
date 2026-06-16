@@ -13,6 +13,7 @@ post is injected so the messenger is tested without the network.
 from __future__ import annotations
 
 import json
+import re
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -20,6 +21,24 @@ from dataclasses import dataclass
 from typing import Callable
 
 LIMIT = 4000  # Telegram hard limit is 4096; leave headroom
+
+# We send plain text (no parse_mode), so any markdown the model emits renders as
+# literal characters. Strip the markers the coach actually produces; leave single
+# * / _ alone (they show up in legit text like "5*5 sets").
+_MD_BOLD = re.compile(r"\*\*(.+?)\*\*|__(.+?)__", re.S)
+_MD_CODE = re.compile(r"`([^`]+)`")
+_MD_HEADER = re.compile(r"^#{1,6}[ \t]+", re.M)
+
+
+def strip_markdown(text: str) -> str:
+    """Remove **bold**/__bold__, `code`, and leading # headings, keeping content.
+
+    Idempotent and safe on already-plain text (catalog strings, emoji): it only
+    touches the specific markdown markers above."""
+    text = _MD_BOLD.sub(lambda m: m.group(1) or m.group(2), text)
+    text = _MD_CODE.sub(r"\1", text)
+    text = _MD_HEADER.sub("", text)
+    return text
 
 
 def chunk_message(text: str, limit: int = LIMIT) -> list[str]:
@@ -65,7 +84,7 @@ class TelegramMessenger:
         the injected ``post``; the caller decides how to handle delivery failure."""
         if not text.strip():
             return 0
-        chunks = chunk_message(text, self._limit)
+        chunks = chunk_message(strip_markdown(text), self._limit)
         for c in chunks:
             data = urllib.parse.urlencode({
                 "chat_id": self._chat_id,

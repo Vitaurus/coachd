@@ -23,7 +23,7 @@ from ..core.i18n import Strings
 from ..core.pending import PendingStore
 from ..security.authenticator import OwnerGate
 from ..security.write_guard import default_confirm_message
-from .telegram import chunk_message, make_api
+from .telegram import chunk_message, make_api, strip_markdown
 
 
 class TelegramBot:
@@ -50,7 +50,9 @@ class TelegramBot:
 
     # --- sending --------------------------------------------------------- #
     def _send(self, chat_id: object, text: str) -> None:
-        for c in chunk_message(text):
+        # strip markdown the model may emit — Telegram is plain text, so **bold**
+        # would show as literal asterisks (chat replies route through here)
+        for c in chunk_message(strip_markdown(text)):
             self._api("sendMessage", {
                 "chat_id": chat_id, "text": c, "disable_web_page_preview": "true",
             })

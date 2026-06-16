@@ -89,6 +89,16 @@ def test_ack_sent_before_the_answer(tmp_path):
     assert texts == [STRINGS.get("ack"), "ось аналіз"]
 
 
+def test_chat_reply_markdown_is_stripped(tmp_path):
+    # the model sometimes emits **bold**; Telegram is plain text, so the bot must
+    # strip it before sending (else the user sees literal asterisks)
+    bot, api = _bot(tmp_path, reply=ChatReply("**Readiness 87 — HIGH.**", []))
+    asyncio.run(bot.handle_update(_msg(OWNER, "score?")))
+    texts = [p.get("text") for m, p in api.calls if m == "sendMessage"]
+    assert "Readiness 87 — HIGH." in texts
+    assert not any("**" in t for t in texts)
+
+
 def test_ack_deleted_after_the_answer(tmp_path):
     bot, api = _bot(tmp_path, reply=ChatReply("ось аналіз", []))
     asyncio.run(bot.handle_update(_msg(OWNER, "як я?")))
