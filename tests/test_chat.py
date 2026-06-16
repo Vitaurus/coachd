@@ -61,7 +61,7 @@ def test_history_feeds_into_prompt(tmp_path):
     asyncio.run(eng.run_chat(1, "перше"))
     asyncio.run(eng.run_chat(1, "друге"))
     assert "перше" in captured["prompt"]      # prior turn is in the next prompt
-    assert "Користувач: друге" in captured["prompt"]
+    assert "User: друге" in captured["prompt"]  # role label is English (prompt base)
 
 
 def test_today_date_injected_into_prompt(tmp_path):
@@ -83,7 +83,7 @@ def test_today_date_injected_into_prompt(tmp_path):
         now=lambda: datetime(2026, 6, 15),  # a Monday
     )
     asyncio.run(eng.run_chat(1, "склади і заплануй на завтра"))
-    assert "Сьогодні: 2026-06-15 (понеділок)." in captured["prompt"]
+    assert "Today: 2026-06-15 (Monday)." in captured["prompt"]
 
 
 def test_parked_write_is_returned_for_confirmation(tmp_path):

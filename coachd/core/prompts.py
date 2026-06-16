@@ -11,6 +11,12 @@ trends, baseline is still accumulating"), the 250-word plain-text-no-markdown
 constraint, the one-sided-message instruction, and the exact ===METRICS=== block
 contract (canonical keys pulled from parsing.CANONICAL_KEYS so the prompt and the
 parser can never drift apart).
+
+The corpus is authored in English as the neutral base; the OUTPUT language is set
+by the ``language`` arg (the human name of COACH_LANG — "English"/"Ukrainian"),
+which fills the "Respond in {language}" instruction. The model is multilingual:
+it reads this English methodology and answers in the requested language. Defaults
+to English so callers that don't yet thread the language stay correct.
 """
 
 from __future__ import annotations
@@ -25,11 +31,11 @@ _VALID_MODES = ("morning", "evening")
 def build_system_prompt(methodology: str, provider_fragment: str) -> str:
     """Static system prompt: pinned methodology + the data-source tool fragment."""
     return (
-        "Ти — персональний коуч з тренувань і відновлення. Дотримуйся методології "
-        "нижче як ЖОРСТКИХ правил.\n\n"
-        "=== ДЖЕРЕЛО ДАНИХ ===\n"
+        "You are a personal training and recovery coach. Follow the methodology "
+        "below as STRICT rules.\n\n"
+        "=== DATA SOURCE ===\n"
         f"{provider_fragment}\n\n"
-        "=== МЕТОДОЛОГІЯ ===\n"
+        "=== METHODOLOGY ===\n"
         f"{methodology}"
     )
 
@@ -37,34 +43,35 @@ def build_system_prompt(methodology: str, provider_fragment: str) -> str:
 def _metrics_block(mode: str) -> str:
     keys = ", ".join(CANONICAL_KEYS[mode])
     return (
-        f"Після основного тексту додай РІВНО технічний блок (користувач його НЕ "
-        f"побачить — він вирізається в журнал): окремий рядок {MARKER} , під ним ОДИН "
-        f"рядок мінімізованого JSON з ключовими метриками сьогодні + поле \"verdict\" "
-        f"(одне речення — суть поради). Без markdown-фенсів, нічого після JSON не пиши. "
-        f"Канонічні ключі {MARKER} (використовуй САМЕ ці імена, без синонімів, щоб схема "
-        f"не пливла): {keys}."
+        f"After the main text add EXACTLY one technical block (the user does NOT "
+        f"see it — it is stripped into the journal): a separate line {MARKER} , and "
+        f"under it ONE line of minified JSON with today's key metrics + a "
+        f'"verdict" field (one sentence — the gist of the advice). No markdown '
+        f"fences, write nothing after the JSON. Canonical keys for {MARKER} (use "
+        f"EXACTLY these names, no synonyms, so the schema can't drift): {keys}."
     )
 
 
 def _journal_block(journal_tail: list[str]) -> str:
-    body = "\n".join(journal_tail) if journal_tail else "(журнал порожній — це перший запис)"
+    body = "\n".join(journal_tail) if journal_tail else "(journal empty — this is the first entry)"
     return (
-        "ТВІЙ ЖУРНАЛ (останні записи, для тяглості порад):\n"
+        "YOUR JOURNAL (most recent entries, for advice continuity):\n"
         f"{body}\n"
-        "Спирайся на журнал: чи дотримано минулих порад, що змінилось, не повторюйся дослівно."
+        "Lean on the journal: was past advice followed, what changed, don't repeat it verbatim."
     )
 
 
-def _common_tail(user_name: str, worn_start: date, day_worn: int) -> str:
+def _common_tail(user_name: str, worn_start: date, day_worn: int, language: str) -> str:
     return (
-        f"ВАЖЛИВО про коротку історію: годинник носиться лише з {worn_start.isoformat()}, "
-        f"тобто сьогодні приблизно день {day_worn}. Якщо даних менше ~7 днів — НЕ малюй "
-        f"фейкові тренди; чесно напиши 'baseline ще набирається (день {day_worn})' і давай "
-        f"оцінку по наявному. НІКОЛИ не вигадуй цифри; якщо метрики за сьогодні нема — "
-        f"пропусти її. Перевага trend/weekly/summary-ендпоінтам над важкими поденними "
-        f"циклами. Відповідай українською для {user_name}, до 250 слів, чистим текстом "
-        f"БЕЗ markdown-розмітки, дружнім але діловим тоном. Не став запитань — це "
-        f"одностороннє повідомлення."
+        f"IMPORTANT about the short history: the watch has only been worn since "
+        f"{worn_start.isoformat()}, so today is roughly day {day_worn}. If there is "
+        f"less than ~7 days of data — do NOT draw fake trends; honestly write "
+        f"'baseline still accumulating (day {day_worn})' and give an assessment from "
+        f"what's available. NEVER invent numbers; if a metric for today is missing — "
+        f"skip it. Prefer trend/weekly/summary endpoints over heavy per-day cycles. "
+        f"Respond in {language} for {user_name}, up to 250 words, in plain text "
+        f"WITHOUT markdown formatting, in a friendly but businesslike tone. Don't ask "
+        f"questions — this is a one-way message."
     )
 
 
@@ -76,6 +83,7 @@ def build_report_prompt(
     *,
     user_name: str,
     worn_start: date,
+    language: str = "English",
 ) -> str:
     """Build the per-turn report user prompt for ``morning`` or ``evening``."""
     if mode not in _VALID_MODES:
@@ -86,33 +94,36 @@ def build_report_prompt(
     d7 = (on_date - timedelta(days=7)).isoformat()
     d14 = (on_date - timedelta(days=14)).isoformat()
     d28 = (on_date - timedelta(days=28)).isoformat()
-    tail = _common_tail(user_name, worn_start, day_worn)
+    tail = _common_tail(user_name, worn_start, day_worn, language)
 
     if mode == "morning":
         focus = (
-            f"Сьогодні {d}. Поточний момент: {now_str}. Фокус ранку: ГОТОВНІСТЬ "
-            f"організму, оцінена як ВІДХИЛЕННЯ від норми, а не абсолютні цифри.\n\n"
-            f"Дані за СЬОГОДНІ ({d}): сон (get_sleep_summary), HRV (get_hrv_data), "
-            f"готовність (get_training_readiness/get_morning_training_readiness), "
-            f"Body Battery (get_body_battery), пульс спокою (get_rhr_day).\n"
-            f"BASELINE ~7 днів (з {d7} по {d}): get_hrv_trend, get_vo2max_trend, RHR/сон "
-            f"за останні дні. Оцінюй HRV сьогодні vs 7-денне середнє, напрям RHR/VO2max.\n"
-            f"Висновок: 1) готовність з урахуванням тренду; 2) конкретний план дня "
-            f"(інтенсивність чи відпочинок); 3) ключові цифри коротко."
+            f"Today is {d}. Current moment: {now_str}. Morning focus: body "
+            f"READINESS, assessed as a DEVIATION from the norm, not absolute numbers.\n\n"
+            f"Data for TODAY ({d}): sleep (get_sleep_summary), HRV (get_hrv_data), "
+            f"readiness (get_training_readiness/get_morning_training_readiness), "
+            f"Body Battery (get_body_battery), resting heart rate (get_rhr_day).\n"
+            f"BASELINE ~7 days (from {d7} to {d}): get_hrv_trend, get_vo2max_trend, "
+            f"RHR/sleep over recent days. Assess today's HRV vs the 7-day average, the "
+            f"direction of RHR/VO2max.\n"
+            f"Conclusion: 1) readiness accounting for the trend; 2) a concrete plan for "
+            f"the day (intensity or rest); 3) key numbers, briefly."
         )
     else:  # evening
         focus = (
-            f"Сьогодні {d}. Поточний момент: {now_str}. Фокус вечора: НАВАНТАЖЕННЯ дня "
-            f"в контексті тижня/місяця.\n\n"
-            f"Дані за СЬОГОДНІ ({d}): активності (get_activities_by_date з {d} по {d}), "
-            f"денне зведення (get_user_summary), стрес (get_stress_data), статус "
-            f"тренувань (get_training_status).\n"
-            f"ТРЕНДИ: get_training_load_trend; get_progress_summary_between_dates за 28 "
-            f"днів (з {d28} по {d}); get_weekly_*; активності за 14 днів (з {d14}) для "
-            f"патерну.\nACWR: гостре(7д)/хронічне(28д) — >1.3 ризик, <0.8 детренування, "
-            f"0.8–1.3 оптимум. Якщо нема повних 28 днів — НЕ рахуй, так і скажи.\n"
-            f"Висновок: 1) підсумок дня в контексті тижня; 2) якість тренування (HR-зони), "
-            f"якщо було; 3) поради на завтра + рекомендований час відбою."
+            f"Today is {d}. Current moment: {now_str}. Evening focus: the day's LOAD "
+            f"in the context of the week/month.\n\n"
+            f"Data for TODAY ({d}): activities (get_activities_by_date from {d} to {d}), "
+            f"daily summary (get_user_summary), stress (get_stress_data), training "
+            f"status (get_training_status).\n"
+            f"TRENDS: get_training_load_trend; get_progress_summary_between_dates over "
+            f"28 days (from {d28} to {d}); get_weekly_*; activities over 14 days (from "
+            f"{d14}) for the pattern.\nACWR: acute(7d)/chronic(28d) — >1.3 risk, <0.8 "
+            f"detraining, 0.8–1.3 optimal. If there isn't a full 28 days — do NOT "
+            f"compute it, say so.\n"
+            f"Conclusion: 1) the day's summary in the context of the week; 2) workout "
+            f"quality (HR zones), if there was one; 3) advice for tomorrow + a "
+            f"recommended bedtime."
         )
 
     return (

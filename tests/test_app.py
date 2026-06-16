@@ -45,7 +45,7 @@ def _fakes():
 
 def test_load_methodology_reads_packaged_file():
     text = load_methodology()
-    assert "Методологія" in text  # the real methodology.md ships and loads
+    assert "methodology" in text.lower()  # the real methodology.md ships and loads
 
 
 def test_build_app_report_flow_end_to_end(tmp_path):

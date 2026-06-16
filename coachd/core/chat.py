@@ -17,11 +17,13 @@ from datetime import datetime
 from typing import Callable
 
 from ..ports.llm import LLMError, LLMPort
+from .i18n import TODAY_MARKER
 from .pending import PendingAction, PendingStore
 from .session_store import SessionStore
 
-# Ukrainian weekday names (Mon=0). Explicit map — no locale dependency.
-_UA_WEEKDAYS = ("понеділок", "вівторок", "середа", "четвер", "пʼятниця", "субота", "неділя")
+# Weekday names (Mon=0) — model-facing prompt context, so English (the prompt
+# base), not the output language. Explicit map, no locale dependency.
+_WEEKDAYS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
 
 
 @dataclass(frozen=True)
@@ -51,19 +53,19 @@ class ChatEngine:
 
     def _today_line(self) -> str:
         d = self._now()
-        return f"Сьогодні: {d.date().isoformat()} ({_UA_WEEKDAYS[d.weekday()]})."
+        return f"{TODAY_MARKER} {d.date().isoformat()} ({_WEEKDAYS[d.weekday()]})."
 
     def _render(self, chat_id: object, text: str) -> str:
         turns = self._sessions.history(chat_id)[-self._history_turns:]
         lines = []
         for t in turns:
-            who = "Користувач" if t.role == "user" else "Коуч"
+            who = "User" if t.role == "user" else "Coach"
             lines.append(f"{who}: {t.text}")
         history = "\n".join(lines)
         today = self._today_line()
         if history:
-            return f"{today}\n\nПопередня розмова:\n{history}\n\nКористувач: {text}"
-        return f"{today}\n\nКористувач: {text}"
+            return f"{today}\n\nPrevious conversation:\n{history}\n\nUser: {text}"
+        return f"{today}\n\nUser: {text}"
 
     async def run_chat(self, chat_id: object, text: str) -> ChatReply:
         before = {a.nonce for a in self._pending.list_pending()}
