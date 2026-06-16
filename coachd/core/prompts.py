@@ -44,7 +44,9 @@ def build_system_prompt(
         f"{provider_fragment}\n\n"
         "=== METHODOLOGY ===\n"
         f"{methodology}\n\n"
-        f"Respond in {language}."
+        f"Respond in {language}. Write plain text ONLY — never markdown: no "
+        f"**bold**, no # headings, no `code`, no bullet markers. Telegram shows "
+        f"those symbols literally, so they look like garbage to the user."
     )
 
 
