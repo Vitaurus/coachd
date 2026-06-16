@@ -105,3 +105,41 @@ def test_bad_chat_id_rejected():
     env = dict(_VALID, TG_CHAT_ID="not-a-number")
     with pytest.raises(ConfigError, match="TG_CHAT_ID"):
         ServiceConfig.from_env(env)
+
+
+def test_stt_defaults():
+    c = ServiceConfig.from_env(dict(_VALID))
+    assert c.whisper_model == "small"  # forgiving default for broad self-host hw
+    assert c.whisper_compute == "int8"
+    assert c.voice_enabled is True
+    assert c.max_voice_seconds == 300
+    assert c.stt_download_root == "/data/whisper"
+
+
+def test_stt_overrides():
+    env = dict(
+        _VALID,
+        WHISPER_MODEL="medium",
+        WHISPER_COMPUTE="float16",
+        VOICE_ENABLED="false",
+        MAX_VOICE_SECONDS="120",
+        STT_DOWNLOAD_ROOT="/models",
+    )
+    c = ServiceConfig.from_env(env)
+    assert c.whisper_model == "medium"
+    assert c.whisper_compute == "float16"
+    assert c.voice_enabled is False
+    assert c.max_voice_seconds == 120
+    assert c.stt_download_root == "/models"
+
+
+def test_bad_whisper_compute_rejected():
+    with pytest.raises(ConfigError, match="WHISPER_COMPUTE"):
+        ServiceConfig.from_env(dict(_VALID, WHISPER_COMPUTE="int4"))
+
+
+def test_bad_max_voice_seconds_rejected():
+    with pytest.raises(ConfigError, match="MAX_VOICE_SECONDS"):
+        ServiceConfig.from_env(dict(_VALID, MAX_VOICE_SECONDS="0"))
+    with pytest.raises(ConfigError, match="MAX_VOICE_SECONDS"):
+        ServiceConfig.from_env(dict(_VALID, MAX_VOICE_SECONDS="abc"))
