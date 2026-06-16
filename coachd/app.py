@@ -29,6 +29,7 @@ from .adapters.telegram_bot import TelegramBot
 from .config import ServiceConfig
 from .core.chat import ChatEngine
 from .core.engine import CoachEngine
+from .core.i18n import LANGUAGE_NAMES, Strings
 from .core.journal import Journal
 from .core.pending import PendingStore
 from .core.prompts import build_system_prompt
@@ -55,6 +56,7 @@ class App:
     session_store: SessionStore
     executor: GarminMcpExecutor
     bot: TelegramBot
+    strings: Strings  # the scheduler reads app.strings for the re-auth nudge
 
 
 def build_app(
@@ -67,10 +69,15 @@ def build_app(
 ) -> App:
     data_root = Path(config.tokenstore).expanduser().parent
 
+    # one language-bound catalog for the whole graph (ack, confirm caption,
+    # executor status, report headers, scheduler nudge, chat fallbacks)
+    strings = Strings(config.lang)
+
     provider = GarminProvider(config.tokenstore)
     system_prompt = build_system_prompt(
         methodology if methodology is not None else load_methodology(),
         provider.system_prompt_fragment(),
+        language=LANGUAGE_NAMES[config.lang],
     )
 
     # --- report agent: read-only, no write tools, no guard needed ---
@@ -121,6 +128,7 @@ def build_app(
         journal=Journal(data_root / "journal.jsonl"),
         user_name=config.user_name,
         worn_start=config.worn_start,
+        strings=strings,
     )
 
     # --- chat: history + the write-guarded agent; confirmed writes run direct ---
@@ -133,9 +141,10 @@ def build_app(
         chat_agent=chat_agent,
         sessions=session_store,
         pending=pending,
-        now=lambda: datetime.now(_tz),  # tz-aware so "завтра" → a real schedule_date
+        strings=strings,
+        now=lambda: datetime.now(_tz),  # tz-aware so "tomorrow" → a real schedule_date
     )
-    executor = GarminMcpExecutor(provider.mcp_servers()["garmin"])
+    executor = GarminMcpExecutor(provider.mcp_servers()["garmin"], strings)
 
     owner_gate = OwnerGate(config.owner_chat_ids)
 
@@ -151,6 +160,7 @@ def build_app(
         pending=pending,
         executor=executor,
         offset_path=data_root / "offset",
+        strings=strings,
     )
 
     return App(
@@ -165,4 +175,5 @@ def build_app(
         session_store=session_store,
         executor=executor,
         bot=bot,
+        strings=strings,
     )

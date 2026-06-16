@@ -6,6 +6,7 @@ import asyncio
 from datetime import date
 
 from coachd.core.engine import CoachEngine, ReportOutcome
+from coachd.core.i18n import Strings
 from coachd.core.journal import Journal
 from coachd.core.resilience import RetryPolicy, RunState
 from coachd.ports.llm import AgentResult, LLMError
@@ -52,6 +53,7 @@ def _engine(tmp_path, llm, *, tries=3):
         journal=Journal(tmp_path / "journal.jsonl"),
         user_name="Віталій",
         worn_start=WORN,
+        strings=Strings("uk"),  # assertions below pin the Ukrainian headers/notices
         policy=RetryPolicy(max_tries=tries, retry_wait_s=240.0),
         sleep=_no_sleep,
     )

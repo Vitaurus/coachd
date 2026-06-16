@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 
 from coachd.core.chat import ChatEngine
+from coachd.core.i18n import Strings
 from coachd.core.pending import PendingStore
 from coachd.core.session_store import SessionStore
 from coachd.ports.llm import AgentResult, LLMError
@@ -33,6 +34,7 @@ def _engine(tmp_path, agent):
         chat_agent=agent,
         sessions=SessionStore(tmp_path / "s.json", now=lambda: "t"),
         pending=PendingStore(tmp_path / "p.json", nonce_factory=lambda: "N1"),
+        strings=Strings("uk"),
     )
 
 
@@ -80,6 +82,7 @@ def test_today_date_injected_into_prompt(tmp_path):
         chat_agent=_Spy(pending),
         sessions=SessionStore(tmp_path / "s.json", now=lambda: "t"),
         pending=pending,
+        strings=Strings("uk"),
         now=lambda: datetime(2026, 6, 15),  # a Monday
     )
     asyncio.run(eng.run_chat(1, "склади і заплануй на завтра"))
@@ -92,6 +95,7 @@ def test_parked_write_is_returned_for_confirmation(tmp_path):
         chat_agent=_ParkingAgent(pending, park="mcp__garmin__upload_workout"),
         sessions=SessionStore(tmp_path / "s.json", now=lambda: "t"),
         pending=pending,
+        strings=Strings("uk"),
     )
     reply = asyncio.run(eng.run_chat(1, "додай інтервали"))
     assert len(reply.pending) == 1

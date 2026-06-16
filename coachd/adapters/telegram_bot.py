@@ -19,15 +19,11 @@ from pathlib import Path
 from typing import Callable
 
 from ..core.chat import ChatEngine
+from ..core.i18n import Strings
 from ..core.pending import PendingStore
 from ..security.authenticator import OwnerGate
 from ..security.write_guard import default_confirm_message
 from .telegram import chunk_message, make_api
-
-# Sent the instant an owner message arrives, before the (multi-second) agent
-# turn — so the user knows the question was received and is being worked on.
-# Ported verbatim from the reference chatbot's "⏳ дивлюсь дані…" ack.
-ACK_TEXT = "⏳ дивлюсь дані…"
 
 
 class TelegramBot:
@@ -40,6 +36,7 @@ class TelegramBot:
         pending: PendingStore,
         executor,
         offset_path: str | Path,
+        strings: Strings,
         api: Callable[[str, dict], object] | None = None,
     ) -> None:
         self._owner_gate = owner_gate
@@ -47,6 +44,8 @@ class TelegramBot:
         self._pending = pending
         self._executor = executor
         self._offset_path = Path(offset_path)
+        # the language-bound catalog: ack, confirm caption, callback replies
+        self._strings = strings
         self._api = api or make_api(token)
 
     # --- sending --------------------------------------------------------- #
@@ -59,8 +58,8 @@ class TelegramBot:
     def _send_ack(self, chat_id: object) -> object:
         """Send the "⏳" ack and return its ``message_id`` so it can be removed
         once the real reply lands (None if the API gave no id — then we skip the
-        delete). ACK_TEXT is one short line, so no chunking is needed."""
-        result = self._api("sendMessage", {"chat_id": chat_id, "text": ACK_TEXT})
+        delete). The ack is one short line, so no chunking is needed."""
+        result = self._api("sendMessage", {"chat_id": chat_id, "text": self._strings.get("ack")})
         return result.get("message_id") if isinstance(result, dict) else None
 
     def _delete(self, chat_id: object, message_id: object) -> None:
@@ -81,7 +80,7 @@ class TelegramBot:
         ]]}
         self._api("sendMessage", {
             "chat_id": chat_id,
-            "text": default_confirm_message(action),
+            "text": default_confirm_message(action, self._strings),
             "reply_markup": json.dumps(keyboard),
         })
 
@@ -117,7 +116,7 @@ class TelegramBot:
         if kind == "confirm":
             action = self._pending.confirm(nonce)
             if action is None:
-                self._send(chat_id, "⏱ Дію вже оброблено або скасовано.")
+                self._send(chat_id, self._strings.get("cb_already_handled"))
                 return
             try:
                 # the executor returns a fully-formed status line (✓ single tool,
@@ -125,10 +124,11 @@ class TelegramBot:
                 msg = await self._executor.execute(action)
                 self._send(chat_id, msg)
             except Exception as exc:  # noqa: BLE001 — surface any MCP failure to the user
-                self._send(chat_id, f"⚠️ Не вдалося виконати дію: {exc}")
+                self._send(chat_id, self._strings.get("cb_exec_failed", exc=exc))
         elif kind == "cancel":
             ok = self._pending.cancel(nonce)
-            self._send(chat_id, "✗ Скасовано." if ok else "Дію вже оброблено.")
+            key = "cb_cancelled" if ok else "cb_cancel_already"
+            self._send(chat_id, self._strings.get(key))
 
     # --- offset persistence ---------------------------------------------- #
     def _load_offset(self) -> int | None:

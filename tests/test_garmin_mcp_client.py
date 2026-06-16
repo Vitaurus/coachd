@@ -15,6 +15,7 @@ from coachd.adapters.garmin_mcp_client import (
     extract_tool_text,
     parse_workout_id,
 )
+from coachd.core.i18n import Strings
 from coachd.core.pending import PendingAction
 
 
@@ -75,7 +76,8 @@ def _action(tool, **inp):
 
 
 def _run(action, call):
-    return asyncio.run(GarminMcpExecutor({})._run(action, call))
+    # uk so the assertions below can pin the Ukrainian status lines
+    return asyncio.run(GarminMcpExecutor({}, Strings("uk"))._run(action, call))
 
 
 _COMPOSITE = "create_and_schedule_run"   # the coachd composite tool (bare name)

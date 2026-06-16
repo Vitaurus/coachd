@@ -9,8 +9,11 @@ from zoneinfo import ZoneInfo
 
 from coachd.auth.garmin_login import TokenState
 from coachd.core.engine import ReportOutcome
+from coachd.core.i18n import Strings
 from coachd.core.resilience import RunState
-from coachd.scheduler import REAUTH_NUDGE, ReportScheduler, fire_report, format_now
+from coachd.scheduler import ReportScheduler, fire_report, format_now
+
+REAUTH_NUDGE = Strings("en").get("reauth_nudge")  # the localized nudge fire_report sends
 
 KYIV = ZoneInfo("Europe/Kyiv")
 NOW = datetime(2026, 6, 15, 7, 0, tzinfo=KYIV)
@@ -40,6 +43,7 @@ def _app(outcome):
         config=SimpleNamespace(tz="Europe/Kyiv", tokenstore="/data/garmin"),
         engine=_Engine(outcome),
         messenger=_Messenger(),
+        strings=Strings("en"),  # fire_report reads app.strings for the re-auth nudge
     )
 
 

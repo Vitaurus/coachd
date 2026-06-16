@@ -28,15 +28,23 @@ from .parsing import CANONICAL_KEYS, MARKER
 _VALID_MODES = ("morning", "evening")
 
 
-def build_system_prompt(methodology: str, provider_fragment: str) -> str:
-    """Static system prompt: pinned methodology + the data-source tool fragment."""
+def build_system_prompt(
+    methodology: str, provider_fragment: str, *, language: str = "English"
+) -> str:
+    """Static system prompt: pinned methodology + the data-source tool fragment.
+
+    Carries the output-language instruction so BOTH agents honour it — the report
+    user-prompt reinforces it in _common_tail, but the CHAT agent has no such tail,
+    so without this line a chat turn would drift to the language of the (English)
+    methodology instead of COACH_LANG."""
     return (
         "You are a personal training and recovery coach. Follow the methodology "
         "below as STRICT rules.\n\n"
         "=== DATA SOURCE ===\n"
         f"{provider_fragment}\n\n"
         "=== METHODOLOGY ===\n"
-        f"{methodology}"
+        f"{methodology}\n\n"
+        f"Respond in {language}."
     )
 
 

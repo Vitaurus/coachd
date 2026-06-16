@@ -34,6 +34,7 @@ from __future__ import annotations
 import json
 import re
 
+from ..core.i18n import Strings
 from ..core.pending import PendingAction
 from .composite_tools import CREATE_AND_SCHEDULE_RUN
 
@@ -86,9 +87,11 @@ def parse_workout_id(text: str) -> int | None:
 class GarminMcpExecutor:
     """Executes a confirmed PendingAction by calling its tool on the Garmin MCP."""
 
-    def __init__(self, mcp_config: dict) -> None:
+    def __init__(self, mcp_config: dict, strings: Strings) -> None:
         # mcp_config is provider.mcp_servers()["garmin"]: {command, args, env}
         self._cfg = mcp_config
+        # language-bound catalog for the user-facing status line we return
+        self._strings = strings
 
     async def execute(self, action: PendingAction) -> str:
         """Open one MCP stdio session and run the (possibly two-step) action.
@@ -126,27 +129,22 @@ class GarminMcpExecutor:
         real_create = _COMPOSITE_CREATE.get(tool)
         if real_create is None:
             await call(tool, inp)            # ordinary garmin write
-            return f"✓ Виконано: {tool}."
+            return self._strings.get("exec_done", tool=tool)
 
         # Composite create+schedule. schedule_date is a declared param of the
         # composite tool's schema, so the model fills it and it rides in input.
         sched = inp.pop("schedule_date", None)
         # Validate BEFORE the create so a bad date can't orphan a library workout.
+        # (internal guard, not user-facing — English inline, not the catalog)
         if not sched or not _ISO_DATE.match(str(sched)):
-            raise ValueError(f"schedule_date {sched!r} не у форматі YYYY-MM-DD")
+            raise ValueError(f"schedule_date {sched!r} is not in YYYY-MM-DD format")
 
         text = await call(real_create, inp)  # real garmin create → library, returns id
         wid = parse_workout_id(text)
         if wid is None:
-            return (
-                f"⚠️ Створив тренування у бібліотеці, але не вдалося визначити його id, "
-                f"щоб запланувати на {sched}. Скажи «заплануй» — заплоную окремо."
-            )
+            return self._strings.get("exec_created_no_id", sched=sched)
         try:
             await call("schedule_workout", {"workout_id": wid, "calendar_date": sched})
         except Exception as exc:  # noqa: BLE001 — schedule is best-effort after a real create
-            return (
-                f"⚠️ Створив тренування у бібліотеці, але не вдалося запланувати на "
-                f"{sched}: {exc}. Скажи «заплануй» щоб повторити."
-            )
-        return f"✓ Створено і заплановано на {sched}."
+            return self._strings.get("exec_created_sched_failed", sched=sched, exc=exc)
+        return self._strings.get("exec_created_scheduled", sched=sched)

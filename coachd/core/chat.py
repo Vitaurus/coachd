@@ -17,7 +17,7 @@ from datetime import datetime
 from typing import Callable
 
 from ..ports.llm import LLMError, LLMPort
-from .i18n import TODAY_MARKER
+from .i18n import TODAY_MARKER, Strings
 from .pending import PendingAction, PendingStore
 from .session_store import SessionStore
 
@@ -40,12 +40,15 @@ class ChatEngine:
         chat_agent: LLMPort,
         sessions: SessionStore,
         pending: PendingStore,
+        strings: Strings,
         history_turns: int = 10,
         now: Callable[[], datetime] | None = None,
     ) -> None:
         self._agent = chat_agent
         self._sessions = sessions
         self._pending = pending
+        # user-facing reply fallbacks (empty-result, hard-failure)
+        self._strings = strings
         self._history_turns = history_turns
         # tz-aware clock so "завтра"/"на середу" resolve to a real schedule_date;
         # injected by the composition root (config.tz) and in tests.
@@ -75,10 +78,10 @@ class ChatEngine:
 
         try:
             result = await self._agent.run_turn(prompt)
-            reply = (result.text or "").strip() or "Готово."
+            reply = (result.text or "").strip() or self._strings.get("chat_done")
             cost = result.cost_usd
         except LLMError as exc:
-            reply = "Не вдалося обробити запит зараз. Спробуй ще раз."
+            reply = self._strings.get("chat_error")
             cost = None
             # surface nothing parked on hard failure
             self._sessions.append(chat_id, "assistant", reply)

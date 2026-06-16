@@ -6,10 +6,12 @@ import asyncio
 
 from coachd.adapters.telegram_bot import TelegramBot
 from coachd.core.chat import ChatReply
+from coachd.core.i18n import Strings
 from coachd.core.pending import PendingStore
 from coachd.security.authenticator import OwnerGate
 
 OWNER = 123
+STRINGS = Strings("uk")  # the bot is built with a language-bound catalog
 
 
 class _Api:
@@ -61,6 +63,7 @@ def _bot(tmp_path, *, reply=None, executor=None, pending=None):
         pending=pending or PendingStore(tmp_path / "p.json", nonce_factory=lambda: "N1"),
         executor=executor or _Exec(),
         offset_path=tmp_path / "offset",
+        strings=STRINGS,
         api=api,
     )
     return bot, api
@@ -79,13 +82,11 @@ def test_owner_message_gets_chat_reply(tmp_path):
 
 
 def test_ack_sent_before_the_answer(tmp_path):
-    from coachd.adapters.telegram_bot import ACK_TEXT
-
     bot, api = _bot(tmp_path, reply=ChatReply("ось аналіз", []))
     asyncio.run(bot.handle_update(_msg(OWNER, "як я?")))
     texts = [p.get("text") for m, p in api.calls if m == "sendMessage"]
     # ack first ("working on it"), then the real answer
-    assert texts == [ACK_TEXT, "ось аналіз"]
+    assert texts == [STRINGS.get("ack"), "ось аналіз"]
 
 
 def test_ack_deleted_after_the_answer(tmp_path):
@@ -118,6 +119,7 @@ def test_ack_delete_failure_does_not_break_turn(tmp_path):
         pending=PendingStore(tmp_path / "p.json", nonce_factory=lambda: "N1"),
         executor=_Exec(),
         offset_path=tmp_path / "offset",
+        strings=STRINGS,
         api=api,
     )
     asyncio.run(bot.handle_update(_msg(OWNER, "як я?")))
