@@ -89,6 +89,24 @@ def test_today_date_injected_into_prompt(tmp_path):
     assert "Today: 2026-06-15 (Monday)." in captured["prompt"]
 
 
+def test_note_records_outcome_into_next_prompt(tmp_path):
+    # a confirmed write's result, recorded via note(), is recalled next turn
+    pending = PendingStore(tmp_path / "p.json")
+    captured = {}
+
+    class _Spy(_ParkingAgent):
+        async def run_turn(self, prompt):
+            captured["prompt"] = prompt
+            return await super().run_turn(prompt)
+
+    eng = _engine(tmp_path, _Spy(pending))
+    eng.note(7, "✓ Created and scheduled for 2026-06-17.")
+    asyncio.run(eng.run_chat(7, "коли в мене пробіжка?"))
+    # the absolute date the coach actually committed is in the recalled history
+    assert "2026-06-17" in captured["prompt"]
+    assert "Coach: ✓ Created and scheduled for 2026-06-17." in captured["prompt"]
+
+
 def test_parked_write_is_returned_for_confirmation(tmp_path):
     pending = PendingStore(tmp_path / "p.json", nonce_factory=lambda: "N1")
     eng = ChatEngine(

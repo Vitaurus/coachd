@@ -124,13 +124,18 @@ class TelegramBot:
                 # the executor returns a fully-formed status line (✓ single tool,
                 # ✓ create+schedule, or ⚠️ partial-failure note) — send verbatim
                 msg = await self._executor.execute(action)
-                self._send(chat_id, msg)
             except Exception as exc:  # noqa: BLE001 — surface any MCP failure to the user
-                self._send(chat_id, self._strings.get("cb_exec_failed", exc=exc))
+                msg = self._strings.get("cb_exec_failed", exc=exc)
+            self._send(chat_id, msg)
+            # record the confirmed OUTCOME into chat memory (carries the absolute
+            # date) so the coach recalls what it DID, not just what it proposed
+            self._chat.note(chat_id, msg)
         elif kind == "cancel":
             ok = self._pending.cancel(nonce)
-            key = "cb_cancelled" if ok else "cb_cancel_already"
-            self._send(chat_id, self._strings.get(key))
+            msg = self._strings.get("cb_cancelled" if ok else "cb_cancel_already")
+            self._send(chat_id, msg)
+            if ok:
+                self._chat.note(chat_id, msg)  # remember it was cancelled (not done)
 
     # --- offset persistence ---------------------------------------------- #
     def _load_offset(self) -> int | None:

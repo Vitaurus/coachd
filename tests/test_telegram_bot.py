@@ -36,10 +36,14 @@ class _Chat:
     def __init__(self, reply):
         self._reply = reply
         self.calls = []
+        self.notes = []   # out-of-band outcomes recorded into chat memory
 
     async def run_chat(self, chat_id, text):
         self.calls.append((chat_id, text))
         return self._reply
+
+    def note(self, chat_id, text):
+        self.notes.append((chat_id, text))
 
 
 class _Exec:
@@ -171,6 +175,8 @@ def test_confirm_callback_executes(tmp_path):
     # the executor's status line reaches the user verbatim (incl. schedule outcome)
     assert any(p.get("text") == "✓ Створено і заплановано на 2026-06-16."
                for m, p in api.calls if m == "sendMessage")
+    # AND is recorded into chat memory (absolute date) so future recall is accurate
+    assert bot._chat.notes == [(OWNER, "✓ Створено і заплановано на 2026-06-16.")]
 
 
 def test_confirm_stale_nonce_no_execute(tmp_path):
@@ -180,6 +186,7 @@ def test_confirm_stale_nonce_no_execute(tmp_path):
     asyncio.run(bot.handle_update(cb))
     assert ex.calls == []                                  # nothing executed
     assert any("вже оброблено" in p.get("text", "") for m, p in api.calls if m == "sendMessage")
+    assert bot._chat.notes == []                           # stale → nothing recorded to memory
 
 
 def test_cancel_callback(tmp_path):
@@ -191,6 +198,7 @@ def test_cancel_callback(tmp_path):
     asyncio.run(bot.handle_update(cb))
     assert ex.calls == []
     assert pending.get("N1").status == "cancelled"
+    assert bot._chat.notes == [(OWNER, "✗ Скасовано.")]    # coach remembers it was cancelled
 
 
 def test_non_owner_callback_no_execute_but_answered(tmp_path):
