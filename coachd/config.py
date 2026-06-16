@@ -80,6 +80,7 @@ class ServiceConfig:
     user_name: str
     worn_start: date
     tz: str
+    lang: str
     tokenstore: str
     model: str
     use_1m_context: bool
@@ -149,6 +150,19 @@ class ServiceConfig:
                 "CLAUDE_CODE_OAUTH_TOKEN (from `claude setup-token`) is required"
             )
 
+        # COACH_LANG selects the output language (the coach speaks it; the bot
+        # chrome is shown in it). Optional, defaults to the OSS baseline; an
+        # existing Ukrainian deploy must set COACH_LANG=uk to keep speaking UA.
+        from .core.i18n import DEFAULT as LANG_DEFAULT
+        from .core.i18n import SUPPORTED as LANG_SUPPORTED
+
+        lang = (env.get("COACH_LANG") or LANG_DEFAULT).strip().lower()
+        if lang not in LANG_SUPPORTED:
+            problems.append(
+                f"COACH_LANG={lang!r} is not supported (use one of: "
+                f"{', '.join(LANG_SUPPORTED)})"
+            )
+
         tokenstore = (env.get(TOKENSTORE_ENV) or DEFAULT_TOKENSTORE).strip()
         model = (env.get("MODEL") or DEFAULT_MODEL).strip()
         use_1m = (env.get("USE_1M_CONTEXT") or "").strip().lower() in ("1", "true", "yes")
@@ -164,6 +178,7 @@ class ServiceConfig:
             user_name=user_name,
             worn_start=worn_start,
             tz=tz,
+            lang=lang,
             tokenstore=tokenstore,
             model=model,
             use_1m_context=use_1m,
