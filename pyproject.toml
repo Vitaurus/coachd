@@ -27,6 +27,13 @@ dependencies = [
 dev = [
     "pytest>=8.0",
 ]
+# Local CPU speech-to-text. ctranslate2 + the `av` wheel (which bundles ffmpeg, so
+# no system ffmpeg is needed). The STT adapter imports faster-whisper LAZILY, so
+# unit tests (fake model factory) need neither this package nor the model artifact
+# resolved. The runtime Docker image installs `.[voice]`; pin deliberately, never float.
+voice = [
+    "faster-whisper==1.1.0",
+]
 
 [project.scripts]
 coachd = "coachd.__main__:main"
