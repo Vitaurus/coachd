@@ -50,7 +50,7 @@ class ChatEngine:
         # user-facing reply fallbacks (empty-result, hard-failure)
         self._strings = strings
         self._history_turns = history_turns
-        # tz-aware clock so "завтра"/"на середу" resolve to a real schedule_date;
+        # tz-aware clock so "tomorrow"/"on Wednesday" resolve to a real schedule_date;
         # injected by the composition root (config.tz) and in tests.
         self._now = now or datetime.now
 

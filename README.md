@@ -62,6 +62,8 @@ docker compose run --rm -e TG_BOT_TOKEN=<token> coachd chat-id
 Fill in `.env` (copy from `.env.example`): `TG_BOT_TOKEN`, `TG_CHAT_ID`,
 your Anthropic credential (`ANTHROPIC_API_KEY` **or** `CLAUDE_CODE_OAUTH_TOKEN`
 from `claude setup-token` — set one, not both), `USER_NAME`, `WORN_START`, `TZ`.
+The coach speaks English by default; set `COACH_LANG=uk` for Ukrainian (if you
+ran an earlier Ukrainian-only build, set this or it switches to English).
 Then:
 ```bash
 docker compose up -d

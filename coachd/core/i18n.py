@@ -56,6 +56,15 @@ CATALOG: dict[str, dict[str, str]] = {
         "en": "This action was already handled.",
         "uk": "Дію вже оброблено.",
     },
+    # --- telegram_bot: inline confirm/cancel button labels -------------- #
+    "btn_confirm": {
+        "en": "✓ Confirm",
+        "uk": "✓ Підтвердити",
+    },
+    "btn_cancel": {
+        "en": "✗ Cancel",
+        "uk": "✗ Скасувати",
+    },
     # --- write_guard: confirm caption (two fragments + an `if sched`) ----- #
     "confirm_needs_approval": {
         "en": "⏸ Action needs confirmation: {tool}{when}\nConfirm or cancel in Telegram (#{nonce}).",
