@@ -62,6 +62,11 @@ def _urllib_post(url: str, data: bytes) -> None:
         r.read()
 
 
+def _urllib_get_bytes(url: str) -> bytes:
+    with urllib.request.urlopen(url, timeout=60) as r:
+        return r.read()
+
+
 class TelegramMessenger:
     """Sends to one chat. ``post(url, data)`` is injected (defaults to urllib)."""
 
@@ -170,3 +175,61 @@ def discover_chat_ids(token: str, *, api: Callable[[str, dict | None], object] |
     api("deleteWebhook", {})
     updates = api("getUpdates", {}) or []
     return parse_chat_ids(updates)
+
+
+# --------------------------------------------------------------------------- #
+# File download (image input) — getFile + binary fetch
+# --------------------------------------------------------------------------- #
+# Bot API getFile serves files <=20MB; a Telegram photo is typically well under
+# 1MB. Cap the bytes BEFORE the binary fetch (the file_size from getFile) so a
+# spammed large image costs nothing downstream — base64 + a billed vision turn.
+MAX_IMAGE_BYTES = 10 * 1024 * 1024
+
+# media_type for the Anthropic image block. Telegram photos are JPEG, so jpeg is
+# the right fallback. (Pixel dimensions are NOT capped here — the claude CLI
+# auto-downscales images >2000px, so the byte cap is the only guard we need.)
+_MIME_BY_EXT = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".webp": "image/webp",
+    ".gif": "image/gif",
+}
+
+
+def _mime_for(file_path: str) -> str:
+    dot = file_path.rfind(".")
+    ext = file_path[dot:].lower() if dot >= 0 else ""
+    return _MIME_BY_EXT.get(ext, "image/jpeg")
+
+
+def download_file(
+    token: str,
+    file_id: str,
+    *,
+    max_bytes: int = MAX_IMAGE_BYTES,
+    api: Callable[[str, dict | None], object] | None = None,
+    fetch: Callable[[str], bytes] | None = None,
+) -> tuple[bytes, str]:
+    """Download a Telegram file by id → ``(bytes, media_type)``.
+
+    getFile → refuse if ``file_size`` exceeds ``max_bytes`` (BEFORE the fetch) →
+    download the bytes → return them with a media_type guessed from the extension.
+    ``api``/``fetch`` are injectable for tests. HTTP errors (bad token/file_id)
+    propagate; the caller surfaces a friendly download-failed message.
+    """
+    api = api or make_api(token)
+    fetch = fetch or _urllib_get_bytes
+    info = api("getFile", {"file_id": file_id}) or {}
+    if not isinstance(info, dict):
+        raise ValueError("getFile returned no file info")
+    size = info.get("file_size")
+    if isinstance(size, int) and size > max_bytes:
+        raise ValueError(f"image too large: {size} bytes > {max_bytes} cap")
+    file_path = info.get("file_path")
+    if not file_path:
+        raise ValueError("getFile returned no file_path")
+    data = fetch(f"https://api.telegram.org/file/bot{token}/{file_path}")
+    if len(data) > max_bytes:  # belt-and-suspenders when file_size was absent
+        raise ValueError(f"image too large: {len(data)} bytes > {max_bytes} cap")
+    return data, _mime_for(file_path)

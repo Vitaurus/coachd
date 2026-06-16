@@ -23,7 +23,7 @@ from ..core.i18n import Strings
 from ..core.pending import PendingStore
 from ..security.authenticator import OwnerGate
 from ..security.write_guard import default_confirm_message
-from .telegram import chunk_message, make_api, strip_markdown
+from .telegram import chunk_message, download_file, make_api, strip_markdown
 
 
 class TelegramBot:
@@ -38,6 +38,7 @@ class TelegramBot:
         offset_path: str | Path,
         strings: Strings,
         api: Callable[[str, dict], object] | None = None,
+        download: Callable[[str], tuple[bytes, str]] | None = None,
     ) -> None:
         self._owner_gate = owner_gate
         self._chat = chat_engine
@@ -47,6 +48,10 @@ class TelegramBot:
         # the language-bound catalog: ack, confirm caption, callback replies
         self._strings = strings
         self._api = api or make_api(token)
+        # download a photo by file_id → (bytes, media_type). Reuses the bot's api
+        # for getFile (one HTTP path); the binary fetch uses urllib. Injectable so
+        # the photo branch is unit-tested fully offline.
+        self._download = download or (lambda file_id: download_file(token, file_id, api=self._api))
 
     # --- sending --------------------------------------------------------- #
     def _send(self, chat_id: object, text: str) -> None:
@@ -57,11 +62,11 @@ class TelegramBot:
                 "chat_id": chat_id, "text": c, "disable_web_page_preview": "true",
             })
 
-    def _send_ack(self, chat_id: object) -> object:
-        """Send the "⏳" ack and return its ``message_id`` so it can be removed
-        once the real reply lands (None if the API gave no id — then we skip the
-        delete). The ack is one short line, so no chunking is needed."""
-        result = self._api("sendMessage", {"chat_id": chat_id, "text": self._strings.get("ack")})
+    def _send_ack(self, chat_id: object, key: str = "ack") -> object:
+        """Send the transient ack (⏳ for text, 🖼 for a photo) and return its
+        ``message_id`` so it can be removed once the real reply lands (None if the
+        API gave no id — then we skip the delete). One short line, no chunking."""
+        result = self._api("sendMessage", {"chat_id": chat_id, "text": self._strings.get(key)})
         return result.get("message_id") if isinstance(result, dict) else None
 
     def _delete(self, chat_id: object, message_id: object) -> None:
@@ -102,14 +107,47 @@ class TelegramBot:
         chat_id = msg.get("chat", {}).get("id")
         if not self._owner_gate.allows(chat_id):
             return  # SECURITY: only the owner is answered
+
+        # A photo is handled BEFORE the text guard below: an uncaptioned photo has
+        # no `text`, so `if not text: return` would silently eat the most common
+        # input (snap a meal, no caption). The caption (if any) rides as the message.
+        photo = msg.get("photo")
+        if photo:
+            await self._handle_photo(chat_id, photo, (msg.get("caption") or "").strip())
+            return
+
         text = (msg.get("text") or "").strip()
         if not text:
-            return  # v1: text only (voice is v1.1)
+            return  # v1: text + photo only (voice is a later plan)
 
         ack_id = self._send_ack(chat_id)  # "received, working on it" — the turn is slow
         reply = await self._chat.run_chat(chat_id, text)
+        await self._deliver(chat_id, reply, ack_id)
+
+    async def _handle_photo(self, chat_id: object, photo: list, caption: str) -> None:
+        """Download the largest photo size and run a guarded image chat turn.
+
+        Largest (``photo[-1]``) reads small text best (calorie labels, screenshot
+        figures). The blocking download runs in a thread so it never stalls the
+        shared poll loop. A download failure is surfaced as one friendly line —
+        never a traceback — and the turn ends cleanly."""
+        ack_id = self._send_ack(chat_id, "photo_ack")
+        try:
+            file_id = photo[-1]["file_id"]
+            image = await asyncio.to_thread(self._download, file_id)
+        except Exception as exc:  # noqa: BLE001 — download/oversize failures are user-visible, not crashes
+            self._delete(chat_id, ack_id)
+            self._send(chat_id, self._strings.get("photo_download_failed"))
+            print(f"coachd bot: photo download failed: {exc}", flush=True)
+            return
+        reply = await self._chat.run_chat(chat_id, caption, image=image)
+        await self._deliver(chat_id, reply, ack_id)
+
+    async def _deliver(self, chat_id: object, reply, ack_id: object) -> None:
+        """Send the reply, drop the stale ack, and surface any parked write for
+        confirmation. Shared by the text and photo paths."""
         self._send(chat_id, reply.text)
-        self._delete(chat_id, ack_id)  # answer landed → the "⏳" ack is now stale
+        self._delete(chat_id, ack_id)  # answer landed → the ack is now stale
         for action in reply.pending:
             self._send_confirm(chat_id, action)
 

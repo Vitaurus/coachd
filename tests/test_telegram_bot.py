@@ -36,10 +36,12 @@ class _Chat:
     def __init__(self, reply):
         self._reply = reply
         self.calls = []
+        self.images = []  # (chat_id, image) for image turns
         self.notes = []   # out-of-band outcomes recorded into chat memory
 
-    async def run_chat(self, chat_id, text):
+    async def run_chat(self, chat_id, text, *, image=None):
         self.calls.append((chat_id, text))
+        self.images.append((chat_id, image))
         return self._reply
 
     def note(self, chat_id, text):
@@ -58,7 +60,23 @@ class _Exec:
         return "✓ Створено і заплановано на 2026-06-16."
 
 
-def _bot(tmp_path, *, reply=None, executor=None, pending=None):
+class _Download:
+    """Fake photo download: records the file_id, returns canned (bytes, mime),
+    or raises to simulate a download/oversize failure."""
+
+    def __init__(self, *, raise_exc=None, result=(b"IMG", "image/jpeg")):
+        self.calls = []
+        self._raise = raise_exc
+        self._result = result
+
+    def __call__(self, file_id):
+        self.calls.append(file_id)
+        if self._raise:
+            raise self._raise
+        return self._result
+
+
+def _bot(tmp_path, *, reply=None, executor=None, pending=None, download=None):
     api = _Api()
     bot = TelegramBot(
         token="t",
@@ -69,12 +87,76 @@ def _bot(tmp_path, *, reply=None, executor=None, pending=None):
         offset_path=tmp_path / "offset",
         strings=STRINGS,
         api=api,
+        download=download or _Download(),
     )
     return bot, api
 
 
 def _msg(chat_id, text):
     return {"message": {"chat": {"id": chat_id}, "text": text}}
+
+
+def _photo_msg(chat_id, *, caption=None, sizes=("thumb", "big")):
+    msg = {"chat": {"id": chat_id}, "photo": [{"file_id": s} for s in sizes]}
+    if caption is not None:
+        msg["caption"] = caption
+    return {"message": msg}
+
+
+# --- photo input ------------------------------------------------------------ #
+def test_uncaptioned_photo_is_processed_not_dropped(tmp_path):
+    # the critical ordering: the photo branch sits BEFORE `if not text: return`,
+    # so a captionless photo (no `text`) is still handled
+    dl = _Download()
+    bot, api = _bot(tmp_path, reply=ChatReply("млинці ~450 ккал", []), download=dl)
+    asyncio.run(bot.handle_update(_photo_msg(OWNER)))
+    assert bot._chat.calls == [(OWNER, "")]                 # run_chat invoked, empty caption
+    assert bot._chat.images == [(OWNER, (b"IMG", "image/jpeg"))]  # image forwarded
+    assert any(p.get("text") == "млинці ~450 ккал" for m, p in api.calls if m == "sendMessage")
+
+
+def test_photo_branch_acks_downloads_largest_and_replies(tmp_path):
+    dl = _Download()
+    bot, api = _bot(tmp_path, reply=ChatReply("бачу твій сон 7г", []), download=dl)
+    asyncio.run(bot.handle_update(_photo_msg(OWNER, caption="що скажеш?", sizes=("s", "m", "big"))))
+    texts = [p.get("text") for m, p in api.calls if m == "sendMessage"]
+    # the photo-specific ack came first, then the reply
+    assert texts[0] == STRINGS.get("photo_ack")
+    assert "бачу твій сон 7г" in texts
+    assert dl.calls == ["big"]                              # largest size (photo[-1])
+    assert bot._chat.calls == [(OWNER, "що скажеш?")]       # caption rode as the message
+    # the transient ack was deleted after the answer landed
+    assert any(m == "deleteMessage" for m, _ in api.calls)
+
+
+def test_photo_that_parks_a_write_sends_confirm_buttons(tmp_path):
+    pending = PendingStore(tmp_path / "p.json", nonce_factory=lambda: "N1")
+    action = pending.put("mcp__garmin__upload_workout", {"name": "x"})
+    bot, api = _bot(
+        tmp_path, reply=ChatReply("створюю з фото", [action]), pending=pending, download=_Download()
+    )
+    asyncio.run(bot.handle_update(_photo_msg(OWNER, caption="створи це тренування")))
+    confirms = [p for m, p in api.calls if m == "sendMessage" and "reply_markup" in p]
+    assert len(confirms) == 1                               # plan-photo → write parked → buttons
+    assert "N1" in confirms[0]["reply_markup"]
+
+
+def test_photo_download_failure_is_graceful(tmp_path):
+    dl = _Download(raise_exc=ValueError("image too large: 99 bytes > 10 cap"))
+    bot, api = _bot(tmp_path, download=dl)
+    asyncio.run(bot.handle_update(_photo_msg(OWNER, caption="x")))
+    texts = [p.get("text") for m, p in api.calls if m == "sendMessage"]
+    assert STRINGS.get("photo_download_failed") in texts    # friendly line, no traceback
+    assert bot._chat.calls == []                            # never reached the model
+
+
+def test_non_owner_photo_ignored(tmp_path):
+    dl = _Download()
+    bot, api = _bot(tmp_path, download=dl)
+    asyncio.run(bot.handle_update(_photo_msg(999, caption="впусти")))
+    assert api.calls == []                                  # nothing sent
+    assert dl.calls == []                                   # never downloaded
+    assert bot._chat.calls == []
 
 
 def test_owner_message_gets_chat_reply(tmp_path):

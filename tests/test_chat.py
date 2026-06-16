@@ -21,7 +21,8 @@ class _ParkingAgent:
         self._text = text
         self._raise = raise_exc
 
-    async def run_turn(self, prompt):
+    async def run_turn(self, prompt, *, image=None):
+        self.last_image = image
         if self._raise:
             raise self._raise
         if self._park:
@@ -55,9 +56,9 @@ def test_history_feeds_into_prompt(tmp_path):
     captured = {}
 
     class _Spy(_ParkingAgent):
-        async def run_turn(self, prompt):
+        async def run_turn(self, prompt, *, image=None):
             captured["prompt"] = prompt
-            return await super().run_turn(prompt)
+            return await super().run_turn(prompt, image=image)
 
     eng = _engine(tmp_path, _Spy(pending))
     asyncio.run(eng.run_chat(1, "перше"))
@@ -74,9 +75,9 @@ def test_today_date_injected_into_prompt(tmp_path):
     captured = {}
 
     class _Spy(_ParkingAgent):
-        async def run_turn(self, prompt):
+        async def run_turn(self, prompt, *, image=None):
             captured["prompt"] = prompt
-            return await super().run_turn(prompt)
+            return await super().run_turn(prompt, image=image)
 
     eng = ChatEngine(
         chat_agent=_Spy(pending),
@@ -95,9 +96,9 @@ def test_note_records_outcome_into_next_prompt(tmp_path):
     captured = {}
 
     class _Spy(_ParkingAgent):
-        async def run_turn(self, prompt):
+        async def run_turn(self, prompt, *, image=None):
             captured["prompt"] = prompt
-            return await super().run_turn(prompt)
+            return await super().run_turn(prompt, image=image)
 
     eng = _engine(tmp_path, _Spy(pending))
     eng.note(7, "✓ Created and scheduled for 2026-06-17.")
@@ -105,6 +106,51 @@ def test_note_records_outcome_into_next_prompt(tmp_path):
     # the absolute date the coach actually committed is in the recalled history
     assert "2026-06-17" in captured["prompt"]
     assert "Coach: ✓ Created and scheduled for 2026-06-17." in captured["prompt"]
+
+
+def test_image_turn_forwards_image_and_appends_instruction(tmp_path):
+    pending = PendingStore(tmp_path / "p.json")
+    captured = {}
+
+    class _Spy(_ParkingAgent):
+        async def run_turn(self, prompt, *, image=None):
+            captured["prompt"] = prompt
+            captured["image"] = image
+            return await super().run_turn(prompt, image=image)
+
+    agent = _Spy(pending, text="млинці ~450 ккал")
+    eng = _engine(tmp_path, agent)
+    reply = asyncio.run(eng.run_chat(5, "скільки тут калорій?", image=(b"JPG", "image/jpeg")))
+
+    assert reply.text == "млинці ~450 ккал"
+    # the photo was forwarded to the agent verbatim
+    assert captured["image"] == (b"JPG", "image/jpeg")
+    # the classify-by-type instruction was prepended to the prompt
+    assert "sent a PHOTO" in captured["prompt"]
+    assert "calories and macros" in captured["prompt"]
+    # the caption rode the current-turn line
+    assert "скільки тут калорій?" in captured["prompt"]
+    # history records a NON-EMPTY placeholder (with the caption), not a blank turn
+    hist = eng._sessions.history(5)
+    assert hist[0].role == "user"
+    assert hist[0].text == "[sent a photo: скільки тут калорій?]"
+
+
+def test_image_turn_uncaptioned_records_nonblank_placeholder(tmp_path):
+    pending = PendingStore(tmp_path / "p.json")
+    eng = _engine(tmp_path, _ParkingAgent(pending, text="бачу тарілку"))
+    asyncio.run(eng.run_chat(9, "", image=(b"PNG", "image/png")))
+    hist = eng._sessions.history(9)
+    assert hist[0].text == "[sent a photo]"   # never an empty user turn
+
+
+def test_text_turn_passes_no_image(tmp_path):
+    # regression: the plain text path forwards image=None, unchanged behavior
+    pending = PendingStore(tmp_path / "p.json")
+    agent = _ParkingAgent(pending, text="ok")
+    eng = _engine(tmp_path, agent)
+    asyncio.run(eng.run_chat(1, "як справи?"))
+    assert agent.last_image is None
 
 
 def test_parked_write_is_returned_for_confirmation(tmp_path):

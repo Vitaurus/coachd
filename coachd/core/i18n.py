@@ -40,6 +40,14 @@ CATALOG: dict[str, dict[str, str]] = {
         "en": "⏳ checking your data…",
         "uk": "⏳ дивлюсь дані…",
     },
+    "photo_ack": {
+        "en": "🖼 looking at the photo…",
+        "uk": "🖼 дивлюсь фото…",
+    },
+    "photo_download_failed": {
+        "en": "⚠️ Could not download that photo. Try sending it again.",
+        "uk": "⚠️ Не вдалося завантажити це фото. Спробуй надіслати ще раз.",
+    },
     "cb_already_handled": {
         "en": "⏱ This action was already handled or cancelled.",
         "uk": "⏱ Дію вже оброблено або скасовано.",

@@ -35,4 +35,8 @@ class LLMError(Exception):
 
 
 class LLMPort(Protocol):
-    async def run_turn(self, prompt: str) -> AgentResult: ...
+    async def run_turn(
+        self, prompt: str, *, image: tuple[bytes, str] | None = None
+    ) -> AgentResult: ...
+    # ``image`` = (raw bytes, media_type); chat passes a photo, reports never do.
+    # Optional + keyword-only, so the report path (run_turn(prompt)) is unchanged.

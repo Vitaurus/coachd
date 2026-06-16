@@ -2,7 +2,78 @@
 
 from __future__ import annotations
 
-from coachd.adapters.telegram import LIMIT, TelegramMessenger, chunk_message, strip_markdown
+import pytest
+
+from coachd.adapters.telegram import (
+    LIMIT,
+    TelegramMessenger,
+    chunk_message,
+    download_file,
+    strip_markdown,
+)
+
+
+def _fake_api(info):
+    calls: list = []
+
+    def api(method, params=None):
+        calls.append((method, params))
+        return info
+
+    api.calls = calls  # type: ignore[attr-defined]
+    return api
+
+
+def test_download_file_happy_path_returns_bytes_and_mime():
+    api = _fake_api({"file_path": "photos/file_7.jpg", "file_size": 1234})
+    data, mime = download_file("TOK", "FID", api=api, fetch=lambda url: b"\xff\xd8jpegbytes")
+    assert data == b"\xff\xd8jpegbytes"
+    assert mime == "image/jpeg"
+    assert api.calls == [("getFile", {"file_id": "FID"})]
+
+
+def test_download_file_builds_file_url_with_token_and_path():
+    api = _fake_api({"file_path": "photos/file_7.jpg"})
+    seen = {}
+    download_file("TOK", "FID", api=api, fetch=lambda url: seen.setdefault("url", url) or b"x")
+    assert seen["url"] == "https://api.telegram.org/file/botTOK/photos/file_7.jpg"
+
+
+def test_download_file_mime_by_extension():
+    for path, expected in [
+        ("a/b.png", "image/png"),
+        ("a/b.webp", "image/webp"),
+        ("a/b.bin", "image/jpeg"),   # unknown ext → jpeg fallback (Telegram photos are jpeg)
+        ("noext", "image/jpeg"),
+    ]:
+        api = _fake_api({"file_path": path})
+        _, mime = download_file("T", "F", api=api, fetch=lambda url: b"x")
+        assert mime == expected, path
+
+
+def test_download_file_refuses_oversized_via_file_size_before_fetch():
+    api = _fake_api({"file_path": "p.jpg", "file_size": 99})
+    fetched = {"called": False}
+
+    def fetch(url):
+        fetched["called"] = True
+        return b"x"
+
+    with pytest.raises(ValueError, match="too large"):
+        download_file("T", "F", max_bytes=10, api=api, fetch=fetch)
+    assert fetched["called"] is False  # cap stops the cost at the source
+
+
+def test_download_file_refuses_oversized_via_bytes_when_no_file_size():
+    api = _fake_api({"file_path": "p.jpg"})  # no file_size from getFile
+    with pytest.raises(ValueError, match="too large"):
+        download_file("T", "F", max_bytes=3, api=api, fetch=lambda url: b"toolong")
+
+
+def test_download_file_missing_file_path_raises():
+    api = _fake_api({"file_size": 10})
+    with pytest.raises(ValueError, match="file_path"):
+        download_file("T", "F", api=api, fetch=lambda url: b"x")
 
 
 def test_strip_markdown_removes_bold_code_headers():
