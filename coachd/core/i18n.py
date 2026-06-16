@@ -48,6 +48,33 @@ CATALOG: dict[str, dict[str, str]] = {
         "en": "⚠️ Could not download that photo. Try sending it again.",
         "uk": "⚠️ Не вдалося завантажити це фото. Спробуй надіслати ще раз.",
     },
+    # --- telegram_bot: voice notes (STT) -------------------------------- #
+    "voice_ack": {
+        "en": "🎤 transcribing…",
+        "uk": "🎤 розшифровую…",
+    },
+    "voice_heard": {  # echoed back so the user can verify the STT ({text} both langs)
+        "en": "🎤 Heard: {text}",
+        "uk": "🎤 Почув: {text}",
+    },
+    "voice_empty": {
+        "en": "🤔 Didn't catch that — try again or type it.",
+        "uk": "🤔 Не розчув — спробуй ще раз або напиши текстом.",
+    },
+    "voice_failed": {
+        "en": "⚠️ Couldn't transcribe that — please type it.",
+        "uk": "⚠️ Не вдалося розшифрувати — напиши, будь ласка, текстом.",
+    },
+    # one NEUTRAL line for BOTH "model still warming up" and "load failed/disabled"
+    # — the bot can't (and needn't) distinguish them from a single None check
+    "voice_unavailable": {
+        "en": "🎤 Voice isn't ready right now — please type for now.",
+        "uk": "🎤 Голос зараз недоступний — напиши, будь ласка, текстом.",
+    },
+    "voice_too_long": {
+        "en": "🎤 That voice note is too long — please send a shorter one.",
+        "uk": "🎤 Це голосове задовге — надішли, будь ласка, коротше.",
+    },
     "cb_already_handled": {
         "en": "⏱ This action was already handled or cancelled.",
         "uk": "⏱ Дію вже оброблено або скасовано.",

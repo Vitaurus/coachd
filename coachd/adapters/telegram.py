@@ -186,14 +186,20 @@ def discover_chat_ids(token: str, *, api: Callable[[str, dict | None], object] |
 MAX_IMAGE_BYTES = 10 * 1024 * 1024
 
 # media_type for the Anthropic image block. Telegram photos are JPEG, so jpeg is
-# the right fallback. (Pixel dimensions are NOT capped here — the claude CLI
+# the right image fallback. (Pixel dimensions are NOT capped here — the claude CLI
 # auto-downscales images >2000px, so the byte cap is the only guard we need.)
+# Audio entries are for Telegram voice notes (.oga, OGG/Opus): download_file is
+# reused for voice, but the voice branch DISCARDS the returned mime (it hands raw
+# bytes to whisper), so these only keep the value honest, never load-bearing.
 _MIME_BY_EXT = {
     ".jpg": "image/jpeg",
     ".jpeg": "image/jpeg",
     ".png": "image/png",
     ".webp": "image/webp",
     ".gif": "image/gif",
+    ".oga": "audio/ogg",
+    ".ogg": "audio/ogg",
+    ".opus": "audio/ogg",
 }
 
 

@@ -16,7 +16,7 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 
 from ..core.chat import ChatEngine
 from ..core.i18n import Strings
@@ -24,6 +24,9 @@ from ..core.pending import PendingStore
 from ..security.authenticator import OwnerGate
 from ..security.write_guard import default_confirm_message
 from .telegram import chunk_message, download_file, make_api, strip_markdown
+
+if TYPE_CHECKING:  # type-only — the bot never imports the heavy whisper adapter
+    from ..ports.stt import TranscriberPort
 
 
 class TelegramBot:
@@ -39,6 +42,8 @@ class TelegramBot:
         strings: Strings,
         api: Callable[[str, dict], object] | None = None,
         download: Callable[[str], tuple[bytes, str]] | None = None,
+        transcriber: "TranscriberPort | None" = None,
+        max_voice_seconds: int = 300,
     ) -> None:
         self._owner_gate = owner_gate
         self._chat = chat_engine
@@ -48,10 +53,21 @@ class TelegramBot:
         # the language-bound catalog: ack, confirm caption, callback replies
         self._strings = strings
         self._api = api or make_api(token)
-        # download a photo by file_id → (bytes, media_type). Reuses the bot's api
-        # for getFile (one HTTP path); the binary fetch uses urllib. Injectable so
-        # the photo branch is unit-tested fully offline.
+        # download a photo/voice file by file_id → (bytes, media_type). Reuses the
+        # bot's api for getFile (one HTTP path); the binary fetch uses urllib.
+        # Injectable so the photo/voice branches are unit-tested fully offline.
         self._download = download or (lambda file_id: download_file(token, file_id, api=self._api))
+        # voice/STT: None → voice off (model not loaded yet, load failed, or
+        # disabled). The composition root's background loader calls set_transcriber
+        # once the model is ready, so text serves immediately while voice warms up.
+        self._transcriber = transcriber
+        self._max_voice_seconds = max_voice_seconds
+
+    def set_transcriber(self, transcriber: "TranscriberPort") -> None:
+        """Enable voice once the model has finished loading (called by the
+        background loader). A plain attribute write — safe because the same single
+        event-loop thread reads it in handle_update; no lock needed."""
+        self._transcriber = transcriber
 
     # --- sending --------------------------------------------------------- #
     def _send(self, chat_id: object, text: str) -> None:
@@ -116,9 +132,16 @@ class TelegramBot:
             await self._handle_photo(chat_id, photo, (msg.get("caption") or "").strip())
             return
 
+        # A voice note also has no `text`, so it MUST be handled before the guard
+        # below — same reason as photo. The transcript becomes the turn's text.
+        voice = msg.get("voice")
+        if voice:
+            await self._handle_voice(chat_id, voice)
+            return
+
         text = (msg.get("text") or "").strip()
         if not text:
-            return  # v1: text + photo only (voice is a later plan)
+            return  # text + photo + voice only (no documents/video)
 
         ack_id = self._send_ack(chat_id)  # "received, working on it" — the turn is slow
         reply = await self._chat.run_chat(chat_id, text)
@@ -141,6 +164,58 @@ class TelegramBot:
             print(f"coachd bot: photo download failed: {exc}", flush=True)
             return
         reply = await self._chat.run_chat(chat_id, caption, image=image)
+        await self._deliver(chat_id, reply, ack_id)
+
+    async def _handle_voice(self, chat_id: object, voice: dict) -> None:
+        """Transcribe a Telegram voice note and run it as a normal chat turn.
+
+        The transcript is plain TEXT, so it rides the SAME guarded pipeline as a
+        typed message (``run_chat``) — a voice-issued write parks for confirmation
+        exactly like a typed one. Friendly lines cover every failure (unavailable /
+        too-long / download / empty / STT) — never a traceback.
+
+        Blocking work (download, transcribe) runs in a thread so the shared poll
+        loop is never stalled. The loop processes updates SEQUENTIALLY
+        (``for u in ups: await handle_update``), so two transcribes cannot overlap
+        — no single-flight lock is needed unless a future change dispatches updates
+        concurrently (then add one)."""
+        if self._transcriber is None:
+            # model still warming up, load failed, or voice disabled — one neutral
+            # line covers all three (no load-state is tracked to tell them apart)
+            self._send(chat_id, self._strings.get("voice_unavailable"))
+            return
+        # Reject an over-long (or accidental) note BEFORE downloading: STT on CPU
+        # runs near real-time and the poll loop AWAITS transcribe, so a long clip
+        # would make the bot unresponsive for minutes. A missing/odd duration falls
+        # through — download_file's byte cap is the backstop.
+        duration = voice.get("duration")
+        if isinstance(duration, (int, float)) and duration > self._max_voice_seconds:
+            self._send(chat_id, self._strings.get("voice_too_long"))
+            return
+        ack_id = self._send_ack(chat_id, "voice_ack")
+        try:
+            audio, _mime = await asyncio.to_thread(self._download, voice["file_id"])
+        except Exception as exc:  # noqa: BLE001 — download/oversize failures are user-visible
+            self._delete(chat_id, ack_id)
+            self._send(chat_id, self._strings.get("voice_failed"))
+            print(f"coachd bot: voice download failed: {exc}", flush=True)
+            return
+        try:
+            transcript = await asyncio.to_thread(
+                self._transcriber.transcribe, audio, language=self._strings.lang
+            )
+        except Exception as exc:  # noqa: BLE001 — STT failure → friendly line, not a crash
+            self._delete(chat_id, ack_id)
+            self._send(chat_id, self._strings.get("voice_failed"))
+            print(f"coachd bot: transcription failed: {exc}", flush=True)
+            return
+        if not transcript:
+            self._delete(chat_id, ack_id)
+            self._send(chat_id, self._strings.get("voice_empty"))
+            return
+        # echo what was heard so the user can verify the STT (kept, not transient)
+        self._send(chat_id, self._strings.get("voice_heard", text=transcript))
+        reply = await self._chat.run_chat(chat_id, transcript)
         await self._deliver(chat_id, reply, ack_id)
 
     async def _deliver(self, chat_id: object, reply, ack_id: object) -> None:
