@@ -39,6 +39,22 @@ def test_model_and_1m_overrides():
     assert c.use_1m_context is True
 
 
+def test_lang_defaults_to_oss_baseline_en():
+    # no COACH_LANG → English (the OSS default); a live UA deploy must opt in
+    assert ServiceConfig.from_env(dict(_VALID)).lang == "en"
+
+
+def test_lang_accepts_uk_case_insensitive():
+    assert ServiceConfig.from_env(dict(_VALID, COACH_LANG="uk")).lang == "uk"
+    assert ServiceConfig.from_env(dict(_VALID, COACH_LANG="UK")).lang == "uk"
+
+
+def test_unsupported_lang_is_rejected():
+    with pytest.raises(ConfigError) as ei:
+        ServiceConfig.from_env(dict(_VALID, COACH_LANG="fr"))
+    assert "COACH_LANG" in str(ei.value)
+
+
 def test_oauth_token_instead_of_api_key_is_valid():
     # Claude subscription users authenticate with `claude setup-token`, not a
     # console.anthropic.com key. Either credential satisfies auth.
