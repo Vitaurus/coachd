@@ -134,6 +134,9 @@ def test_build_app_constructs_unloaded_transcriber_when_voice_enabled(tmp_path):
     # once the model is ready, so text serves immediately while voice loads.
     assert app.bot._transcriber is None
     assert app.bot._max_voice_seconds == app.config.max_voice_seconds
+    # voice is enabled → the bot is in the "pending" state so it sends the
+    # transient "warming up" line (not the permanent off line) during the load.
+    assert app.bot._voice_pending is True
 
 
 def test_build_app_no_transcriber_when_voice_disabled(tmp_path):
@@ -151,12 +154,16 @@ def test_build_app_no_transcriber_when_voice_disabled(tmp_path):
     )
     assert app.transcriber is None
     assert app.bot._transcriber is None
+    assert app.bot._voice_pending is False  # voice off → never promises "warming up"
 
 
-def _voice_app(transcriber, *, set_calls):
+def _voice_app(transcriber, *, set_calls, unavailable_calls):
     """A minimal stand-in for App that _load_voice_model touches: .transcriber,
-    .bot.set_transcriber, .config.{whisper_model,whisper_compute}."""
-    bot = SimpleNamespace(set_transcriber=lambda t: set_calls.append(t))
+    .bot.{set_transcriber,mark_voice_unavailable}, .config.{whisper_model,whisper_compute}."""
+    bot = SimpleNamespace(
+        set_transcriber=lambda t: set_calls.append(t),
+        mark_voice_unavailable=lambda: unavailable_calls.append(True),
+    )
     config = SimpleNamespace(whisper_model="small", whisper_compute="int8")
     return SimpleNamespace(transcriber=transcriber, bot=bot, config=config)
 
@@ -164,26 +171,32 @@ def _voice_app(transcriber, *, set_calls):
 def test_load_voice_model_enables_voice_on_success():
     loaded: list = []
     set_calls: list = []
+    unavailable_calls: list = []
     transcriber = SimpleNamespace(load=lambda: loaded.append(True))
-    app = _voice_app(transcriber, set_calls=set_calls)
+    app = _voice_app(transcriber, set_calls=set_calls, unavailable_calls=unavailable_calls)
 
     asyncio.run(_load_voice_model(app))
 
     assert loaded == [True]               # the model was loaded (off the loop)
     assert set_calls == [transcriber]     # …and voice was enabled on the bot
+    assert unavailable_calls == []        # success path never marks it unavailable
 
 
 def test_load_voice_model_degrades_quietly_on_load_failure():
     set_calls: list = []
+    unavailable_calls: list = []
 
     def _boom():
         raise RuntimeError("no model file")
 
     transcriber = SimpleNamespace(load=_boom)
-    app = _voice_app(transcriber, set_calls=set_calls)
+    app = _voice_app(transcriber, set_calls=set_calls, unavailable_calls=unavailable_calls)
 
     # a load failure must NOT crash serve and must leave voice disabled — the
-    # exception is swallowed (logged loudly) and set_transcriber is never called.
+    # exception is swallowed (logged loudly), set_transcriber is never called, and
+    # the bot is told to drop "warming up" (mark_voice_unavailable) so it stops
+    # promising a model that will never arrive.
     asyncio.run(_load_voice_model(app))
 
     assert set_calls == []
+    assert unavailable_calls == [True]

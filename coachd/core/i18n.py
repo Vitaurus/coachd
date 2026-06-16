@@ -65,8 +65,14 @@ CATALOG: dict[str, dict[str, str]] = {
         "en": "⚠️ Couldn't transcribe that — please type it.",
         "uk": "⚠️ Не вдалося розшифрувати — напиши, будь ласка, текстом.",
     },
-    # one NEUTRAL line for BOTH "model still warming up" and "load failed/disabled"
-    # — the bot can't (and needn't) distinguish them from a single None check
+    # transient: voice IS enabled but the model is still loading (slow first-boot
+    # download, e.g. the medium model) — retry shortly. The bot picks this over
+    # voice_unavailable when voice_pending is set.
+    "voice_loading": {
+        "en": "🎤 Voice is still warming up (loading the model) — try again in a moment, or type for now.",
+        "uk": "🎤 Голос ще гріється (вантажу модель) — спробуй за мить, або напиши текстом.",
+    },
+    # permanent: load failed or voice disabled — typing is the path forward
     "voice_unavailable": {
         "en": "🎤 Voice isn't ready right now — please type for now.",
         "uk": "🎤 Голос зараз недоступний — напиши, будь ласка, текстом.",

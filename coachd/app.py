@@ -181,6 +181,11 @@ def build_app(
         # loader calls bot.set_transcriber once the model is ready (or never, on
         # load failure → voice stays disabled, text keeps working).
         max_voice_seconds=config.max_voice_seconds,
+        # voice_pending = "a model is on its way" → the bot sends a transient
+        # "warming up, retry" line during the load window instead of the permanent
+        # off line. The loader clears it (set_transcriber on success,
+        # mark_voice_unavailable on failure).
+        voice_pending=config.voice_enabled,
     )
 
     return App(

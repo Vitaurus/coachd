@@ -135,6 +135,7 @@ async def _load_voice_model(app) -> None:
             flush=True,
         )
     except Exception as exc:  # noqa: BLE001 — voice is optional; degrade loudly, never crash serve
+        app.bot.mark_voice_unavailable()  # clear pending → bot stops saying "warming up"
         print(
             f"coachd serve: voice DISABLED — whisper model load failed: {exc}. "
             f"Text chat and reports are unaffected.",

@@ -92,7 +92,7 @@ class _Transcriber:
 
 
 def _bot(tmp_path, *, reply=None, executor=None, pending=None, download=None,
-         transcriber=None, max_voice_seconds=300):
+         transcriber=None, max_voice_seconds=300, voice_pending=False):
     api = _Api()
     bot = TelegramBot(
         token="t",
@@ -106,6 +106,7 @@ def _bot(tmp_path, *, reply=None, executor=None, pending=None, download=None,
         download=download or _Download(),
         transcriber=transcriber,
         max_voice_seconds=max_voice_seconds,
+        voice_pending=voice_pending,
     )
     return bot, api
 
@@ -206,12 +207,48 @@ def test_voice_transcribes_echoes_and_replies(tmp_path):
 
 def test_voice_unavailable_when_no_transcriber(tmp_path):
     dl = _voice_download()
-    bot, api = _bot(tmp_path, download=dl, transcriber=None)          # model not ready / disabled
+    bot, api = _bot(tmp_path, download=dl, transcriber=None)          # load failed / disabled
     asyncio.run(bot.handle_update(_voice_msg(OWNER)))
     texts = [p.get("text") for m, p in api.calls if m == "sendMessage"]
-    assert texts == [STRINGS.get("voice_unavailable")]               # one neutral line
+    assert texts == [STRINGS.get("voice_unavailable")]               # permanent off line
     assert dl.calls == []                                            # never downloaded
     assert bot._chat.calls == []                                     # never reached the model
+
+
+def test_voice_loading_line_while_model_warms_up(tmp_path):
+    # voice enabled + model still loading (transcriber not set yet) → the TRANSIENT
+    # "warming up, retry" line, NOT the permanent off line. This is the slow
+    # first-boot-download gap (e.g. medium) made legible to the user.
+    dl = _voice_download()
+    bot, api = _bot(tmp_path, download=dl, transcriber=None, voice_pending=True)
+    asyncio.run(bot.handle_update(_voice_msg(OWNER)))
+    texts = [p.get("text") for m, p in api.calls if m == "sendMessage"]
+    assert texts == [STRINGS.get("voice_loading")]
+    assert dl.calls == []                                            # never downloaded
+
+
+def test_set_transcriber_clears_pending_and_enables(tmp_path):
+    tr = _Transcriber()
+    dl = _voice_download()
+    bot, api = _bot(tmp_path, download=dl, transcriber=None, voice_pending=True)
+    bot.set_transcriber(tr)                                          # model finished loading
+    assert bot._voice_pending is False
+    asyncio.run(bot.handle_update(_voice_msg(OWNER)))
+    # now a voice note transcribes (no loading/unavailable line)
+    assert tr.calls == [(b"OGG", "uk")]
+
+
+def test_mark_voice_unavailable_flips_pending_to_off_line(tmp_path):
+    # load failed → loader calls mark_voice_unavailable → the next voice note gets
+    # the PERMANENT off line, not "still warming up" forever.
+    dl = _voice_download()
+    bot, api = _bot(tmp_path, download=dl, transcriber=None, voice_pending=True)
+    bot.mark_voice_unavailable()
+    assert bot._voice_pending is False
+    asyncio.run(bot.handle_update(_voice_msg(OWNER)))
+    texts = [p.get("text") for m, p in api.calls if m == "sendMessage"]
+    assert texts == [STRINGS.get("voice_unavailable")]
+    assert dl.calls == []
 
 
 def test_voice_too_long_rejected_before_download(tmp_path):
