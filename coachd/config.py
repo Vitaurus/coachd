@@ -61,6 +61,15 @@ def resolve_tokenstore(env: dict[str, str] | None = None) -> Path:
 # MODEL=claude-opus-4-8 for max quality (the user pays for their own key).
 DEFAULT_MODEL = "claude-sonnet-4-6"
 
+# Voice/STT (faster-whisper). The shipped default is `small` (~500MB): forgiving
+# on the modest hardware a broad self-host audience runs. Ukrainian accuracy is
+# better on `medium` (~1.5GB) — the README tells uk users to set WHISPER_MODEL=medium.
+DEFAULT_WHISPER_MODEL = "small"
+# ctranslate2 compute types. int8 is the cpu default; an invalid value fails deep
+# in model load with a cryptic ctranslate2 error, so validate it at boot instead.
+_VALID_COMPUTE = {"int8", "int8_float16", "int8_float32", "int16", "float16", "float32"}
+DEFAULT_STT_DOWNLOAD_ROOT = "/data/whisper"  # under the persisted /data bind
+
 
 @dataclass(frozen=True)
 class ServiceConfig:
@@ -84,6 +93,12 @@ class ServiceConfig:
     tokenstore: str
     model: str
     use_1m_context: bool
+    # voice / STT (faster-whisper)
+    whisper_model: str
+    whisper_compute: str
+    voice_enabled: bool
+    max_voice_seconds: int
+    stt_download_root: str
 
     @classmethod
     def from_env(cls, env: dict[str, str] | None = None) -> "ServiceConfig":
@@ -167,6 +182,25 @@ class ServiceConfig:
         model = (env.get("MODEL") or DEFAULT_MODEL).strip()
         use_1m = (env.get("USE_1M_CONTEXT") or "").strip().lower() in ("1", "true", "yes")
 
+        # --- voice / STT (faster-whisper) ---
+        whisper_model = (env.get("WHISPER_MODEL") or DEFAULT_WHISPER_MODEL).strip()
+        whisper_compute = (env.get("WHISPER_COMPUTE") or "int8").strip()
+        if whisper_compute not in _VALID_COMPUTE:
+            problems.append(
+                f"WHISPER_COMPUTE={whisper_compute!r} is not one of "
+                f"{', '.join(sorted(_VALID_COMPUTE))}"
+            )
+        voice_enabled = (env.get("VOICE_ENABLED") or "true").strip().lower() in ("1", "true", "yes")
+        max_voice_raw = (env.get("MAX_VOICE_SECONDS") or "300").strip()
+        max_voice_seconds = 300
+        try:
+            max_voice_seconds = int(max_voice_raw)
+            if max_voice_seconds <= 0:
+                raise ValueError
+        except ValueError:
+            problems.append(f"MAX_VOICE_SECONDS={max_voice_raw!r} must be a positive integer")
+        stt_download_root = (env.get("STT_DOWNLOAD_ROOT") or DEFAULT_STT_DOWNLOAD_ROOT).strip()
+
         if problems:
             raise ConfigError("invalid configuration:\n  - " + "\n  - ".join(problems))
 
@@ -182,4 +216,9 @@ class ServiceConfig:
             tokenstore=tokenstore,
             model=model,
             use_1m_context=use_1m,
+            whisper_model=whisper_model,
+            whisper_compute=whisper_compute,
+            voice_enabled=voice_enabled,
+            max_voice_seconds=max_voice_seconds,
+            stt_download_root=stt_download_root,
         )
