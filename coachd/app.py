@@ -22,6 +22,7 @@ from typing import Callable
 
 from .adapters.anthropic_agent import AnthropicAgent, sdk_allow, sdk_deny
 from .adapters.composite_tools import COMPOSITE_TOOLS, SERVER_NAME, build_composite_server
+from .adapters.faster_whisper_stt import FasterWhisperTranscriber
 from .adapters.garmin_mcp_client import GarminMcpExecutor
 from .adapters.garmin_provider import GarminProvider
 from .adapters.telegram import TelegramMessenger
@@ -57,6 +58,9 @@ class App:
     executor: GarminMcpExecutor
     bot: TelegramBot
     strings: Strings  # the scheduler reads app.strings for the re-auth nudge
+    # the STT transcriber, constructed UNLOADED (None when voice is disabled). serve
+    # loads it off the event loop, then calls bot.set_transcriber to enable voice.
+    transcriber: FasterWhisperTranscriber | None
 
 
 def build_app(
@@ -153,6 +157,18 @@ def build_app(
     else:
         messenger = TelegramMessenger(config.tg_bot_token, config.owner_chat_ids[0])
 
+    # voice/STT: build the transcriber UNLOADED (cheap — the heavy model fetch is
+    # deferred to load(), kept out of pure build_app). None when voice is disabled.
+    transcriber = (
+        FasterWhisperTranscriber(
+            model_size=config.whisper_model,
+            compute_type=config.whisper_compute,
+            download_root=config.stt_download_root,
+        )
+        if config.voice_enabled
+        else None
+    )
+
     bot = TelegramBot(
         token=config.tg_bot_token,
         owner_gate=owner_gate,
@@ -161,6 +177,10 @@ def build_app(
         executor=executor,
         offset_path=data_root / "offset",
         strings=strings,
+        # transcriber starts None so text serves immediately; serve's background
+        # loader calls bot.set_transcriber once the model is ready (or never, on
+        # load failure → voice stays disabled, text keeps working).
+        max_voice_seconds=config.max_voice_seconds,
     )
 
     return App(
@@ -176,4 +196,5 @@ def build_app(
         executor=executor,
         bot=bot,
         strings=strings,
+        transcriber=transcriber,
     )

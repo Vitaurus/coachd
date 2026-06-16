@@ -6,6 +6,8 @@ import asyncio
 from datetime import date
 from types import SimpleNamespace
 
+from coachd.__main__ import _load_voice_model
+from coachd.adapters.faster_whisper_stt import FasterWhisperTranscriber
 from coachd.app import build_app, load_methodology
 from coachd.config import ServiceConfig
 from coachd.core.resilience import RunState
@@ -114,3 +116,74 @@ def test_owner_gate_wired(tmp_path):
     )
     assert app.owner_gate.allows(12345) is True
     assert app.owner_gate.allows(999) is False
+
+
+# --- voice/STT wiring ----------------------------------------------------- #
+def test_build_app_constructs_unloaded_transcriber_when_voice_enabled(tmp_path):
+    fake_query, fake_options = _fakes()
+    app = build_app(
+        _config(tmp_path), methodology="RULES",
+        query_fn=fake_query, options_cls=fake_options, post=lambda u, d: None,
+    )
+    # VOICE_ENABLED defaults to true → a transcriber is constructed but UNLOADED
+    # (the heavy model fetch is deferred to load(), kept out of pure build_app).
+    assert isinstance(app.transcriber, FasterWhisperTranscriber)
+    assert app.transcriber.ready is False
+    assert app.transcriber._model_size == app.config.whisper_model
+    # and it is NOT yet wired into the bot — serve's background loader does that
+    # once the model is ready, so text serves immediately while voice loads.
+    assert app.bot._transcriber is None
+    assert app.bot._max_voice_seconds == app.config.max_voice_seconds
+
+
+def test_build_app_no_transcriber_when_voice_disabled(tmp_path):
+    cfg = ServiceConfig.from_env({
+        "TG_BOT_TOKEN": "123:abc", "TG_CHAT_ID": "12345",
+        "ANTHROPIC_API_KEY": "sk-ant-x", "USER_NAME": "Віталій",
+        "WORN_START": "2026-06-08", "TZ": "Europe/Kyiv",
+        "GARMINTOKENS": str(tmp_path / "garmin"),
+        "VOICE_ENABLED": "false",
+    })
+    fake_query, fake_options = _fakes()
+    app = build_app(
+        cfg, methodology="RULES",
+        query_fn=fake_query, options_cls=fake_options, post=lambda u, d: None,
+    )
+    assert app.transcriber is None
+    assert app.bot._transcriber is None
+
+
+def _voice_app(transcriber, *, set_calls):
+    """A minimal stand-in for App that _load_voice_model touches: .transcriber,
+    .bot.set_transcriber, .config.{whisper_model,whisper_compute}."""
+    bot = SimpleNamespace(set_transcriber=lambda t: set_calls.append(t))
+    config = SimpleNamespace(whisper_model="small", whisper_compute="int8")
+    return SimpleNamespace(transcriber=transcriber, bot=bot, config=config)
+
+
+def test_load_voice_model_enables_voice_on_success():
+    loaded: list = []
+    set_calls: list = []
+    transcriber = SimpleNamespace(load=lambda: loaded.append(True))
+    app = _voice_app(transcriber, set_calls=set_calls)
+
+    asyncio.run(_load_voice_model(app))
+
+    assert loaded == [True]               # the model was loaded (off the loop)
+    assert set_calls == [transcriber]     # …and voice was enabled on the bot
+
+
+def test_load_voice_model_degrades_quietly_on_load_failure():
+    set_calls: list = []
+
+    def _boom():
+        raise RuntimeError("no model file")
+
+    transcriber = SimpleNamespace(load=_boom)
+    app = _voice_app(transcriber, set_calls=set_calls)
+
+    # a load failure must NOT crash serve and must leave voice disabled — the
+    # exception is swallowed (logged loudly) and set_transcriber is never called.
+    asyncio.run(_load_voice_model(app))
+
+    assert set_calls == []

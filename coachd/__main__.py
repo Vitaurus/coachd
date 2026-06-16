@@ -115,6 +115,33 @@ def _chat_id(*, discover: object = None) -> int:
     return 0
 
 
+async def _load_voice_model(app) -> None:
+    """Load the whisper model OFF the event loop, then enable voice.
+
+    The model build BLOCKS (CPU + a one-time ~download), so it must run in a
+    worker thread — a bare ``create_task`` calling it directly would freeze the
+    single event loop (poll + scheduler + chat) for the whole multi-minute load,
+    defeating the point of loading in the background. Only the loop-safe
+    ``set_transcriber`` assignment runs back on the loop. A load failure leaves
+    voice disabled (text + reports unaffected) with a loud log — never a crash."""
+    import asyncio
+
+    try:
+        await asyncio.to_thread(app.transcriber.load)
+        app.bot.set_transcriber(app.transcriber)
+        print(
+            f"coachd serve: voice ready (whisper {app.config.whisper_model}, "
+            f"{app.config.whisper_compute}).",
+            flush=True,
+        )
+    except Exception as exc:  # noqa: BLE001 — voice is optional; degrade loudly, never crash serve
+        print(
+            f"coachd serve: voice DISABLED — whisper model load failed: {exc}. "
+            f"Text chat and reports are unaffected.",
+            flush=True,
+        )
+
+
 def _serve() -> int:
     """Run the long-running coach: timezone-aware report scheduler.
 
@@ -169,9 +196,14 @@ def _serve() -> int:
             token_state_fn=lambda ts: token_status(ts),
         )
         scheduler.start()  # background cron jobs on this loop
+        # voice: load the whisper model off the loop, then enable it. Fire-and-
+        # forget — text + reports serve immediately while the model downloads.
+        if app.transcriber is not None:
+            asyncio.create_task(_load_voice_model(app))
         print(
             f"coachd serve: reports (morning {morning}, evening {evening}, "
-            f"TZ {config.tz}) + chat bot starting.",
+            f"TZ {config.tz}) + chat bot starting"
+            f"{' (voice loading…)' if app.transcriber is not None else ''}.",
             flush=True,
         )
         await app.bot.run()  # long-poll loop; keeps the process alive
