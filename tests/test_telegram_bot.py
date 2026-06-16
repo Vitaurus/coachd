@@ -76,7 +76,23 @@ class _Download:
         return self._result
 
 
-def _bot(tmp_path, *, reply=None, executor=None, pending=None, download=None):
+class _Transcriber:
+    """Fake STT: records (audio, language), returns canned text or raises."""
+
+    def __init__(self, *, text="як я сьогодні", raise_exc=None):
+        self.calls = []
+        self._text = text
+        self._raise = raise_exc
+
+    def transcribe(self, audio, *, language=None):
+        self.calls.append((audio, language))
+        if self._raise:
+            raise self._raise
+        return self._text
+
+
+def _bot(tmp_path, *, reply=None, executor=None, pending=None, download=None,
+         transcriber=None, max_voice_seconds=300):
     api = _Api()
     bot = TelegramBot(
         token="t",
@@ -88,6 +104,8 @@ def _bot(tmp_path, *, reply=None, executor=None, pending=None, download=None):
         strings=STRINGS,
         api=api,
         download=download or _Download(),
+        transcriber=transcriber,
+        max_voice_seconds=max_voice_seconds,
     )
     return bot, api
 
@@ -101,6 +119,13 @@ def _photo_msg(chat_id, *, caption=None, sizes=("thumb", "big")):
     if caption is not None:
         msg["caption"] = caption
     return {"message": msg}
+
+
+def _voice_msg(chat_id, *, duration=5, file_id="voiceid", with_duration=True):
+    voice = {"file_id": file_id}
+    if with_duration:
+        voice["duration"] = duration
+    return {"message": {"chat": {"id": chat_id}, "voice": voice}}
 
 
 # --- photo input ------------------------------------------------------------ #
@@ -157,6 +182,120 @@ def test_non_owner_photo_ignored(tmp_path):
     assert api.calls == []                                  # nothing sent
     assert dl.calls == []                                   # never downloaded
     assert bot._chat.calls == []
+
+
+# --- voice input (STT) ------------------------------------------------------ #
+def _voice_download(result=(b"OGG", "audio/ogg"), **kw):
+    return _Download(result=result, **kw)
+
+
+def test_voice_transcribes_echoes_and_replies(tmp_path):
+    tr = _Transcriber(text="як я сьогодні")
+    dl = _voice_download()
+    bot, api = _bot(tmp_path, reply=ChatReply("сон 7г, готовність висока", []),
+                    download=dl, transcriber=tr)
+    asyncio.run(bot.handle_update(_voice_msg(OWNER)))
+    texts = [p.get("text") for m, p in api.calls if m == "sendMessage"]
+    assert texts[0] == STRINGS.get("voice_ack")                      # transient ack first
+    assert STRINGS.get("voice_heard", text="як я сьогодні") in texts # echo for verification
+    assert "сон 7г, готовність висока" in texts                      # the coach reply
+    assert tr.calls == [(b"OGG", "uk")]                              # audio + COACH_LANG passthrough
+    assert bot._chat.calls == [(OWNER, "як я сьогодні")]            # transcript rode as the turn
+    assert any(m == "deleteMessage" for m, _ in api.calls)           # ack deleted after the answer
+
+
+def test_voice_unavailable_when_no_transcriber(tmp_path):
+    dl = _voice_download()
+    bot, api = _bot(tmp_path, download=dl, transcriber=None)          # model not ready / disabled
+    asyncio.run(bot.handle_update(_voice_msg(OWNER)))
+    texts = [p.get("text") for m, p in api.calls if m == "sendMessage"]
+    assert texts == [STRINGS.get("voice_unavailable")]               # one neutral line
+    assert dl.calls == []                                            # never downloaded
+    assert bot._chat.calls == []                                     # never reached the model
+
+
+def test_voice_too_long_rejected_before_download(tmp_path):
+    tr = _Transcriber()
+    dl = _voice_download()
+    bot, api = _bot(tmp_path, download=dl, transcriber=tr, max_voice_seconds=300)
+    asyncio.run(bot.handle_update(_voice_msg(OWNER, duration=999)))
+    texts = [p.get("text") for m, p in api.calls if m == "sendMessage"]
+    assert texts == [STRINGS.get("voice_too_long")]
+    assert dl.calls == []                                            # rejected pre-download
+    assert tr.calls == []
+
+
+def test_voice_missing_duration_falls_through(tmp_path):
+    # a missing duration must NOT crash (None > cap) — fall through to normal flow
+    tr = _Transcriber(text="коротко")
+    dl = _voice_download()
+    bot, api = _bot(tmp_path, download=dl, transcriber=tr)
+    asyncio.run(bot.handle_update(_voice_msg(OWNER, with_duration=False)))
+    assert dl.calls == ["voiceid"]                                   # proceeded
+    assert tr.calls == [(b"OGG", "uk")]
+    assert bot._chat.calls == [(OWNER, "коротко")]
+
+
+def test_voice_empty_transcript_nudges(tmp_path):
+    tr = _Transcriber(text="")  # adapter strips → "" means whisper heard nothing
+    bot, api = _bot(tmp_path, download=_voice_download(), transcriber=tr)
+    asyncio.run(bot.handle_update(_voice_msg(OWNER)))
+    texts = [p.get("text") for m, p in api.calls if m == "sendMessage"]
+    assert STRINGS.get("voice_empty") in texts
+    assert bot._chat.calls == []                                     # nothing to run
+    assert any(m == "deleteMessage" for m, _ in api.calls)           # ack cleaned up
+
+
+def test_voice_transcription_error_is_graceful(tmp_path):
+    tr = _Transcriber(raise_exc=RuntimeError("ct2 boom"))
+    bot, api = _bot(tmp_path, download=_voice_download(), transcriber=tr)
+    asyncio.run(bot.handle_update(_voice_msg(OWNER)))
+    texts = [p.get("text") for m, p in api.calls if m == "sendMessage"]
+    assert STRINGS.get("voice_failed") in texts                      # friendly line, no traceback
+    assert bot._chat.calls == []
+
+
+def test_voice_download_failure_is_graceful(tmp_path):
+    tr = _Transcriber()
+    dl = _voice_download(raise_exc=ValueError("too large"))
+    bot, api = _bot(tmp_path, download=dl, transcriber=tr)
+    asyncio.run(bot.handle_update(_voice_msg(OWNER)))
+    texts = [p.get("text") for m, p in api.calls if m == "sendMessage"]
+    assert STRINGS.get("voice_failed") in texts
+    assert tr.calls == []                                            # never transcribed
+    assert bot._chat.calls == []
+
+
+def test_non_owner_voice_ignored(tmp_path):
+    tr = _Transcriber()
+    dl = _voice_download()
+    bot, api = _bot(tmp_path, download=dl, transcriber=tr)
+    asyncio.run(bot.handle_update(_voice_msg(999)))
+    assert api.calls == []                                           # nothing sent
+    assert dl.calls == []
+    assert tr.calls == []
+
+
+def test_voice_that_parks_a_write_sends_confirm_buttons(tmp_path):
+    pending = PendingStore(tmp_path / "p.json", nonce_factory=lambda: "N1")
+    action = pending.put("mcp__garmin__upload_workout", {"name": "x"})
+    tr = _Transcriber(text="створи інтервали")
+    bot, api = _bot(tmp_path, reply=ChatReply("створюю", [action]), pending=pending,
+                    download=_voice_download(), transcriber=tr)
+    asyncio.run(bot.handle_update(_voice_msg(OWNER)))
+    confirms = [p for m, p in api.calls if m == "sendMessage" and "reply_markup" in p]
+    assert len(confirms) == 1                                        # voice-issued write still parks
+    assert "N1" in confirms[0]["reply_markup"]
+
+
+def test_set_transcriber_enables_voice(tmp_path):
+    tr = _Transcriber(text="привіт")
+    bot, api = _bot(tmp_path, download=_voice_download(), transcriber=None)
+    asyncio.run(bot.handle_update(_voice_msg(OWNER)))               # warming up → unavailable
+    assert bot._chat.calls == []
+    bot.set_transcriber(tr)                                          # background loader finished
+    asyncio.run(bot.handle_update(_voice_msg(OWNER)))
+    assert bot._chat.calls == [(OWNER, "привіт")]                   # voice now works
 
 
 def test_owner_message_gets_chat_reply(tmp_path):
