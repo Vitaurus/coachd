@@ -1,0 +1,33 @@
+name: CI
+
+# Guard the test suite on every push to main and every PR. The 201-test suite is
+# the safety net (it includes the Cyrillic-guard that proves the source stays
+# English-only); keep it green automatically.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      # uv.lock is committed and pinned; --frozen fails if it drifts from
+      # pyproject, so CI also catches an out-of-date lockfile. uv fetches the
+      # Python required by requires-python (>=3.12) on its own.
+      - name: Install dependencies (locked)
+        run: uv sync --extra dev --frozen
+
+      - name: Run tests
+        run: uv run pytest -q
