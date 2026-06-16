@@ -12,10 +12,10 @@ Anthropic API key. Your data, your keys, your machine.
 - **Reports** — a morning/evening verdict pushed to Telegram, computed from your
   Garmin metrics (HRV, recovery, training load, sleep).
 - **Chat** — ask "why am I tired today?" and get an answer over your live data.
-  Send a **photo** (a meal, a Garmin screenshot, a training plan) or a **voice
-  note** — voice is transcribed on your box by local whisper, no audio leaves the
-  host. Tune the model in `.env` (`WHISPER_MODEL`, default `small`; use `medium`
-  for better Ukrainian/accented accuracy), or set `VOICE_ENABLED=false` to skip it.
+  Send a **photo** (a meal, a Garmin screenshot, a training plan) any time. **Voice
+  notes** are opt-in (they add ~320MB to the image): build with `VOICE=true` and
+  they're transcribed on your box by local whisper — no audio leaves the host. See
+  *Voice notes* below.
 - **Action** — create and upload workouts to your watch (always confirmation-first).
 
 ## Requirements
@@ -79,6 +79,21 @@ token expires you get a Telegram nudge to re-run `login`.
 Status: scheduled reports work. The interactive chat (ask questions, create
 workouts) is landing next. Report generation needs the bundled `claude` CLI in
 the image — see the Docker notes if you build it yourself.
+
+## Voice notes (optional)
+Voice transcription runs **on your box** (local whisper, no API, no audio leaves
+the host) — but it's **off by default** because the faster-whisper stack adds
+~320MB to the image. The default build is text-only (~1.16GB; ~1.48GB with voice).
+
+To enable it, set `VOICE=true` in `.env` and **rebuild** (it's a build-time flag,
+not just a runtime toggle):
+```bash
+VOICE=true docker compose build && docker compose up -d
+```
+The whisper model downloads once at first boot to `/data/whisper` (persisted), so
+the first voice note after a fresh start may lag while it fetches. For better
+Ukrainian/accented accuracy set `WHISPER_MODEL=medium` (more RAM, slower). On a
+text-only image, voice notes get a "type instead" reply; everything else works.
 
 ## ⚠️ Disclaimers (read these)
 - **Not a medical device.** Estimates are approximate, no guarantees. Do not use
