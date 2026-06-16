@@ -35,16 +35,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN pip install --no-cache-dir pipx \
     && pipx install "git+https://github.com/Taxuspt/garmin_mcp@7af73ebf9b4073cf3b1ad1cb42d351f38e7ef47c"
 
+# Voice (local STT) is OPT-IN: the faster-whisper stack (ctranslate2/onnxruntime/
+# av) adds ~320MB, so the DEFAULT image is text-only (~1.16GB). Build with
+# VOICE=true to include it (~1.48GB). When on, the whisper model is NOT baked — it
+# downloads once at first boot to /data/whisper (a mounted volume → persists).
+ARG VOICE=false
 WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY coachd ./coachd
-# `.[voice]` pulls faster-whisper (local CPU STT) so Telegram voice notes work
-# out of the box. It bundles `av` (ffmpeg) + ctranslate2 — a few hundred MB, the
-# cost of on-box transcription with no API and no audio leaving the host. The
-# whisper model itself is NOT baked: it downloads once at first boot to
-# /data/whisper (a mounted volume → persists across restarts). Set VOICE_ENABLED=
-# false to keep voice off; faster-whisper is imported lazily so it idles for free.
-RUN pip install --no-cache-dir ".[voice]"
+RUN if [ "$VOICE" = "true" ]; then \
+        pip install --no-cache-dir ".[voice]"; \
+    else \
+        pip install --no-cache-dir "."; \
+    fi
+# Default runtime voice state FOLLOWS the build: a text-only image won't try to
+# load a model it doesn't have (no scary "load failed" log). .env can override
+# (e.g. VOICE_ENABLED=false on a voice image to keep voice off without a rebuild).
+ENV VOICE_ENABLED=$VOICE
 
 # `docker compose run --rm coachd login` → python -m coachd login
 # `docker compose up`                      → python -m coachd serve (report scheduler)

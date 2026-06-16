@@ -1,6 +1,12 @@
 services:
   coachd:
-    build: .
+    build:
+      context: .
+      args:
+        # Voice/STT is opt-in (keeps the default image lean). Set VOICE=true in
+        # .env (or `VOICE=true docker compose build`) to bundle faster-whisper,
+        # then rebuild. Default: text-only.
+        VOICE: ${VOICE:-false}
     image: coachd:dev
     env_file:
       # optional: `login` / `token-status` need no .env (GARMINTOKENS is set
