@@ -103,14 +103,14 @@ def _chat_id(*, discover: object = None) -> int:
 
     if not refs:
         print(
-            "Напиши боту будь-що в Telegram, потім повтори:\n"
+            "Message the bot anything in Telegram, then repeat:\n"
             "  docker compose run --rm coachd chat-id"
         )
         return 1
 
     for r in refs:
         print(f"  {r.id}  — {r.label} ({r.type})")
-    print("\nВстав у .env:")
+    print("\nPaste into .env:")
     print("TG_CHAT_ID=" + ",".join(str(r.id) for r in refs))
     return 0
 
@@ -143,17 +143,17 @@ def _serve() -> int:
     auth = probe_anthropic_auth(config.anthropic_api_key, config.oauth_token)
     if auth == "rejected":
         print(
-            "serve: Anthropic відхилив креденшл (HTTP 401). Перевір ANTHROPIC_API_KEY "
-            "(ключ з console.anthropic.com) або CLAUDE_CODE_OAUTH_TOKEN (від "
-            "`claude setup-token`) — і памʼятай: OAuth-токен ставиться в "
-            "CLAUDE_CODE_OAUTH_TOKEN, не в ANTHROPIC_API_KEY.",
+            "serve: Anthropic rejected the credential (HTTP 401). Check ANTHROPIC_API_KEY "
+            "(a console.anthropic.com key) or CLAUDE_CODE_OAUTH_TOKEN (from "
+            "`claude setup-token`) — and remember: the OAuth token goes in "
+            "CLAUDE_CODE_OAUTH_TOKEN, not ANTHROPIC_API_KEY.",
             file=sys.stderr,
         )
         return 2
     if auth == "unreachable":
         print(
-            "serve: не вдалося перевірити Anthropic-креденшл (мережа?). Стартую далі — "
-            "звернення можуть падати, поки звʼязок не відновиться.",
+            "serve: could not verify the Anthropic credential (network?). Starting anyway — "
+            "requests may fail until connectivity is restored.",
             flush=True,
         )
 

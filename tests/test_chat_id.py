@@ -111,7 +111,7 @@ def test_chat_id_empty_prompts_to_message(monkeypatch, capsys):
     monkeypatch.setenv("TG_BOT_TOKEN", "123:abc")
     rc = cli._chat_id(discover=lambda token: [])
     assert rc == 1
-    assert "Напиши боту" in capsys.readouterr().out
+    assert "Message the bot" in capsys.readouterr().out
 
 
 def test_chat_id_missing_token_exits_2(monkeypatch, capsys):

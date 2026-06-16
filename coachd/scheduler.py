@@ -16,11 +16,6 @@ from typing import Awaitable, Callable, Protocol
 from .auth.garmin_login import TokenState
 from .core.resilience import RunState
 
-REAUTH_NUDGE = (
-    "⚠️ Garmin-логін протух — звіти зупинились. Перелогінься:\n"
-    "docker compose run --rm coachd login"
-)
-
 # token_state_fn(tokenstore) -> TokenState
 TokenStateFn = Callable[[str], TokenState]
 
@@ -29,6 +24,7 @@ class _AppLike(Protocol):
     config: object
     engine: object
     messenger: object
+    strings: object  # i18n.Strings — the re-auth nudge is localized
 
 
 def format_now(now: datetime) -> str:
@@ -49,7 +45,7 @@ async def fire_report(app: _AppLike, mode: str, now: datetime, *, token_state_fn
     if outcome.state is RunState.ERROR:
         state = token_state_fn(app.config.tokenstore)
         if state in (TokenState.EXPIRED, TokenState.MISSING):
-            message = REAUTH_NUDGE
+            message = app.strings.get("reauth_nudge")
 
     app.messenger.send(message)
     return message

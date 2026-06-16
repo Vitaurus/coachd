@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 
+from coachd.core.i18n import Strings
 from coachd.core.pending import PENDING, PendingStore
 from coachd.security.write_guard import default_confirm_message, make_write_guard
 
@@ -56,6 +57,18 @@ def test_unknown_or_destructive_tool_not_in_write_set_is_allowed(tmp_path):
 def test_default_confirm_message_mentions_tool_and_nonce(tmp_path):
     store, _ = _guard(tmp_path)
     action = store.put("mcp__garmin__upload_workout", {})
-    msg = default_confirm_message(action)
+    msg = default_confirm_message(action, Strings("en"))
     assert "upload_workout" in msg
     assert action.nonce in msg
+
+
+def test_confirm_message_appends_scheduled_suffix_only_when_dated(tmp_path):
+    # CQ-1: the scheduled-suffix is a separate catalog fragment, composed in code
+    store, _ = _guard(tmp_path)
+    plain = store.put("mcp__garmin__upload_workout", {})
+    dated = store.put("mcp__coachd__create_and_schedule_run", {"schedule_date": "2026-06-17"})
+    assert "2026-06-17" not in default_confirm_message(plain, Strings("en"))
+    msg = default_confirm_message(dated, Strings("en"))
+    assert "2026-06-17" in msg and "scheduled" in msg
+    # and localized: the uk suffix carries the date too
+    assert "2026-06-17" in default_confirm_message(dated, Strings("uk"))

@@ -22,11 +22,10 @@ from datetime import date
 from typing import Awaitable, Callable
 
 from ..ports.llm import AgentResult, LLMError, LLMPort
+from .i18n import LANGUAGE_NAMES, Strings
 from .journal import Journal
 from .prompts import build_report_prompt
 from .resilience import RetryPolicy, RunState, run_with_retry_async
-
-_HEADERS = {"morning": "🌅 Garmin ранок", "evening": "🌙 Garmin вечір"}
 
 
 @dataclass(frozen=True)
@@ -45,6 +44,7 @@ class CoachEngine:
         journal: Journal,
         user_name: str,
         worn_start: date,
+        strings: Strings,
         policy: RetryPolicy = RetryPolicy(),
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
@@ -52,6 +52,9 @@ class CoachEngine:
         self._journal = journal
         self._user_name = user_name
         self._worn_start = worn_start
+        # report headers + skip/fail notices (user-facing); the output LANGUAGE
+        # for the prompt is derived from the same lang.
+        self._strings = strings
         self._policy = policy
         self._sleep = sleep
 
@@ -63,6 +66,7 @@ class CoachEngine:
             self._journal.tail(14),
             user_name=self._user_name,
             worn_start=self._worn_start,
+            language=LANGUAGE_NAMES[self._strings.lang],
         )
 
         last_result: dict[str, AgentResult | None] = {"r": None}
@@ -83,7 +87,7 @@ class CoachEngine:
             sleep=self._sleep,
         )
 
-        header = f"{_HEADERS.get(mode, 'Garmin')} — {on_date.isoformat()}"
+        header = f"{self._strings.get(f'header_{mode}')} — {on_date.isoformat()}"
         cost = last_result["r"].cost_usd if last_result["r"] else None
 
         if state is RunState.OK:
@@ -92,15 +96,10 @@ class CoachEngine:
 
         if state is RunState.EMPTY:
             # do NOT write a row of nulls — tell the user to sync and retry
-            notice = (
-                f"{header}\n\nСвіжі дані з годинника ще не синхнулись у Garmin Connect "
-                f"({self._policy.max_tries} спроб). Звіт пропущено — синхронізуй "
-                f"годинник і запусти ще раз."
+            notice = f"{header}\n\n" + self._strings.get(
+                "report_empty", tries=self._policy.max_tries
             )
             return ReportOutcome(RunState.EMPTY, notice, None, cost)
 
-        notice = (
-            f"⚠️ Garmin coach ({mode}, {on_date.isoformat()}): не вдалося отримати "
-            f"аналіз. Спробуй пізніше."
-        )
+        notice = self._strings.get("report_error", mode=mode, date=on_date.isoformat())
         return ReportOutcome(RunState.ERROR, notice, None, cost)

@@ -21,6 +21,7 @@ from __future__ import annotations
 
 from typing import Awaitable, Callable, Iterable
 
+from ..core.i18n import Strings
 from ..core.pending import PendingAction, PendingStore
 
 # allow() -> SDK PermissionResultAllow ; deny(action) -> SDK PermissionResultDeny
@@ -28,17 +29,19 @@ AllowBuilder = Callable[[], object]
 DenyBuilder = Callable[[PendingAction], object]
 
 
-def default_confirm_message(action: PendingAction) -> str:
+def default_confirm_message(action: PendingAction, strings: Strings) -> str:
     """USER-facing caption shown above the Telegram confirm/cancel buttons.
 
     Surfaces the schedule_date when present so the user can SEE at confirm time
     whether the workout will land on the calendar or only in the library — turns
-    a silent "model forgot to schedule" miss into a visible, cancellable one."""
+    a silent "model forgot to schedule" miss into a visible, cancellable one.
+
+    The conditional scheduled-suffix is composed in code (not duplicated as two
+    full message variants) so the shared prefix lives in one catalog entry."""
     sched = (action.input or {}).get("schedule_date")
-    when = f"\n📅 буде заплановано на {sched}" if sched else ""
-    return (
-        f"⏸ Дія потребує підтвердження: {action.tool}{when}\n"
-        f"Підтвердь або скасуй у Telegram (#{action.nonce})."
+    when = strings.get("confirm_scheduled_suffix", sched=sched) if sched else ""
+    return strings.get(
+        "confirm_needs_approval", tool=action.tool, when=when, nonce=action.nonce
     )
 
 
