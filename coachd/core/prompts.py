@@ -50,6 +50,33 @@ def build_system_prompt(
     )
 
 
+def build_image_instruction() -> str:
+    """Model-facing instruction prepended to a CHAT turn that carries a photo.
+
+    Classifies the image and sets per-type behavior (ported from the LXC
+    reference). English, like the rest of the corpus — the system prompt's
+    "Respond in {language}" still drives the OUTPUT language. A "create this in
+    Garmin" request still routes through the write-guard (parked + confirmed);
+    this instruction does NOT bypass it. The trailing none-of-these branch keeps
+    the model from free-associating on an unclassifiable image."""
+    return (
+        "The user sent a PHOTO with this message. Look at the image, identify its "
+        "type, and respond accordingly:\n"
+        "- FOOD or a meal: estimate calories and macros (protein/carbs/fat). Be "
+        "honest about the error margin of a visual estimate. Do NOT log it to "
+        "Garmin (there are no food tools) — this is chat-only advice.\n"
+        "- A GARMIN SCREENSHOT or graph (sleep, readiness, an activity, heart "
+        "rate, etc.): interpret what it shows; if useful, verify or enrich it with "
+        "the read tools (get_*) before commenting.\n"
+        "- A WORKOUT PLAN (on paper, a whiteboard, or a screen): parse its "
+        "structure. If the user asks you to CREATE it in Garmin, propose the write "
+        "as usual — it will be confirmed before anything is saved.\n"
+        "- ANYTHING ELSE: if the caption says what they want, follow it. If the "
+        "image fits none of the above and there is no clear request, briefly "
+        "describe what you see and ask what they'd like to do."
+    )
+
+
 def _metrics_block(mode: str) -> str:
     keys = ", ".join(CANONICAL_KEYS[mode])
     return (

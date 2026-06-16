@@ -20,7 +20,8 @@ with lightweight fakes, no CLI and no network.
 
 from __future__ import annotations
 
-from typing import Awaitable, Callable, Iterable
+import base64
+from typing import Awaitable, AsyncIterator, Callable, Iterable
 
 from ..ports.llm import AgentResult, LLMError
 
@@ -122,6 +123,36 @@ def extract_result(messages: Iterable[object]) -> AgentResult:
     return AgentResult(text=text, cost_usd=cost, usage=usage)
 
 
+def image_user_message(prompt: str, image: tuple[bytes, str]) -> AsyncIterator[dict]:
+    """An async stream yielding ONE user message: [text block, base64 image block].
+
+    This is the SDK's iterable input branch (``client.query`` forwards each dict to
+    the CLI verbatim — T0-verified that the CLI forwards the image to the model).
+    The string branch (no image) auto-wraps a plain prompt; this branch is needed
+    only when an image rides along. ``session_id`` is filled in by the SDK.
+    """
+    data, media_type = image
+    b64 = base64.b64encode(data).decode("ascii")
+
+    async def _gen() -> AsyncIterator[dict]:
+        yield {
+            "type": "user",
+            "message": {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {
+                        "type": "image",
+                        "source": {"type": "base64", "media_type": media_type, "data": b64},
+                    },
+                ],
+            },
+            "parent_tool_use_id": None,
+        }
+
+    return _gen()
+
+
 def sdk_allow() -> object:
     """Build the SDK's allow result (reads pass through)."""
     from claude_agent_sdk import PermissionResultAllow
@@ -195,10 +226,15 @@ class AnthropicAgent:
             cli_path=self._cli_path,
         )
 
-    async def run_turn(self, prompt: str) -> AgentResult:
+    async def run_turn(
+        self, prompt: str, *, image: tuple[bytes, str] | None = None
+    ) -> AgentResult:
         options = self._build_options()
-        if self._can_use_tool is not None:
-            return await self._run_turn_guarded(prompt, options)
+        # An image always rides the guarded streaming path (it's a chat-only input;
+        # reports never send one). The guarded client keeps the channel open, which
+        # the iterable image message needs — and the write-guard stays wired.
+        if image is not None or self._can_use_tool is not None:
+            return await self._run_turn_guarded(prompt, options, image=image)
         return await self._run_turn_oneshot(prompt, options)
 
     async def _run_turn_oneshot(self, prompt: str, options) -> AgentResult:
@@ -211,21 +247,27 @@ class AnthropicAgent:
         messages = [msg async for msg in query_fn(prompt=prompt, options=options)]
         return extract_result(messages)
 
-    async def _run_turn_guarded(self, prompt: str, options) -> AgentResult:
+    async def _run_turn_guarded(
+        self, prompt: str, options, *, image: tuple[bytes, str] | None = None
+    ) -> AgentResult:
         """Write-guarded path (chat): the can_use_tool permission round-trip needs
         stdin open for the WHOLE turn. The one-shot ``query()`` closes stdin right
         after the prompt unless SDK-MCP servers / hooks are present (we have a
         stdio MCP and no hooks), so the CLI's permission request hits a closed
         stream ("Stream closed") and the guard never fires. ``ClaudeSDKClient``
         keeps the bidirectional channel open until the result — the supported way
-        to use can_use_tool."""
+        to use can_use_tool.
+
+        When ``image`` is set, the query is the iterable [text, image] message
+        instead of a plain string — same client, same guard, just a richer input."""
         if self._client_cls is not None:
             client_cls = self._client_cls
         else:
             from claude_agent_sdk import ClaudeSDKClient as client_cls
+        query_input = prompt if image is None else image_user_message(prompt, image)
         messages: list[object] = []
         async with client_cls(options=options) as client:
-            await client.query(prompt)
+            await client.query(query_input)
             async for msg in client.receive_response():
                 messages.append(msg)
         return extract_result(messages)

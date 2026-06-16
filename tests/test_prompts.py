@@ -12,7 +12,7 @@ from datetime import date
 import pytest
 
 from coachd.core.parsing import CANONICAL_KEYS, MARKER
-from coachd.core.prompts import build_report_prompt, build_system_prompt
+from coachd.core.prompts import build_image_instruction, build_report_prompt, build_system_prompt
 
 WORN = date(2026, 6, 8)
 TODAY = date(2026, 6, 15)  # day 8
@@ -22,6 +22,19 @@ def test_system_prompt_carries_methodology_and_fragment():
     sp = build_system_prompt("METHOD-RULES", "GARMIN-FRAGMENT")
     assert "METHOD-RULES" in sp
     assert "GARMIN-FRAGMENT" in sp
+
+
+def test_image_instruction_classifies_and_has_fallback():
+    instr = build_image_instruction()
+    low = instr.lower()
+    # the four branches the LXC reference defined
+    assert "food" in low and "calories and macros" in low
+    assert "garmin screenshot" in low
+    assert "workout plan" in low
+    # the none-of-these fallback (#11) — describe + ask, don't free-associate
+    assert "anything else" in low and "ask what" in low
+    # writes still go through the guard, not bypassed by the photo path
+    assert "confirmed before anything is saved" in low
 
 
 def test_system_prompt_forbids_markdown_for_both_agents():

@@ -19,6 +19,7 @@ from typing import Callable
 from ..ports.llm import LLMError, LLMPort
 from .i18n import TODAY_MARKER, Strings
 from .pending import PendingAction, PendingStore
+from .prompts import build_image_instruction
 from .session_store import SessionStore
 
 # Weekday names (Mon=0) — model-facing prompt context, so English (the prompt
@@ -79,14 +80,25 @@ class ChatEngine:
         absolute date, anchoring an accurate recall."""
         self._sessions.append(chat_id, "assistant", text)
 
-    async def run_chat(self, chat_id: object, text: str) -> ChatReply:
+    async def run_chat(
+        self, chat_id: object, text: str, *, image: tuple[bytes, str] | None = None
+    ) -> ChatReply:
         before = {a.nonce for a in self._pending.list_pending()}
 
-        prompt = self._render(chat_id, text)
-        self._sessions.append(chat_id, "user", text)
+        # An image can't live in the bounded text history, so history records a
+        # NON-EMPTY placeholder (an empty caption would otherwise leave a blank
+        # user turn that corrupts later recall). The model still sees the photo via
+        # the attached image block; the classify-by-type instruction frames it.
+        if image is not None:
+            history_text = f"[sent a photo: {text}]" if text else "[sent a photo]"
+            prompt = f"{build_image_instruction()}\n\n{self._render(chat_id, history_text)}"
+        else:
+            history_text = text
+            prompt = self._render(chat_id, history_text)
+        self._sessions.append(chat_id, "user", history_text)
 
         try:
-            result = await self._agent.run_turn(prompt)
+            result = await self._agent.run_turn(prompt, image=image)
             reply = (result.text or "").strip() or self._strings.get("chat_done")
             cost = result.cost_usd
         except LLMError as exc:

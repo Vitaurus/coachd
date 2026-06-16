@@ -7,10 +7,13 @@ from types import SimpleNamespace
 
 import pytest
 
+import base64
+
 from coachd.adapters.anthropic_agent import (
     CONTEXT_1M_BETA,
     AnthropicAgent,
     extract_result,
+    image_user_message,
     probe_anthropic_auth,
 )
 from coachd.ports.llm import LLMError
@@ -195,6 +198,60 @@ def test_run_turn_guarded_goes_through_client_not_oneshot():
     # bidirectional client path: opened, prompt sent as a plain string, closed
     assert captured["entered"] and captured["exited"]
     assert captured["prompt"] == "today's prompt"
+
+
+def _drain(aiter):
+    """Collect an async iterator into a list (sync helper for tests)."""
+    async def go():
+        return [m async for m in aiter]
+    return asyncio.run(go())
+
+
+# --- image input ------------------------------------------------------------ #
+def test_image_user_message_builds_text_and_base64_image_blocks():
+    raw = b"\xff\xd8\xff fake jpeg"
+    msgs = _drain(image_user_message("what is this?", (raw, "image/jpeg")))
+    assert len(msgs) == 1
+    content = msgs[0]["message"]["content"]
+    assert msgs[0]["type"] == "user" and msgs[0]["message"]["role"] == "user"
+    assert content[0] == {"type": "text", "text": "what is this?"}
+    assert content[1]["type"] == "image"
+    src = content[1]["source"]
+    assert src["type"] == "base64" and src["media_type"] == "image/jpeg"
+    assert base64.b64decode(src["data"]) == raw  # round-trips the exact bytes
+
+
+def test_run_turn_with_image_sends_iterable_message_through_guarded_client():
+    captured: dict = {}
+    _FakeClient.captured = captured
+
+    def fake_options(**kw):
+        captured.update(kw)
+        return SimpleNamespace(**kw)
+
+    guard = lambda name, inp, ctx=None: None  # noqa: E731
+    agent = AnthropicAgent(
+        model="opus",
+        system_prompt="SP",
+        mcp_servers={},
+        allowed_tools=["mcp__garmin__get_sleep_summary"],
+        can_use_tool=guard,
+        options_cls=fake_options,
+        client_cls=_FakeClient,
+    )
+
+    res = asyncio.run(agent.run_turn("describe", image=(b"PNGDATA", "image/png")))
+
+    assert res.text == "verdict"
+    # the write-guard stays wired even with an image
+    assert captured["can_use_tool"] is guard
+    # the query input is the iterable [text, image] message, NOT a plain string
+    sent = captured["prompt"]
+    assert not isinstance(sent, str)
+    blocks = _drain(sent)[0]["message"]["content"]
+    assert blocks[0]["text"] == "describe"
+    assert base64.b64decode(blocks[1]["source"]["data"]) == b"PNGDATA"
+    assert blocks[1]["source"]["media_type"] == "image/png"
 
 
 def test_run_turn_no_1m_sends_empty_betas():
