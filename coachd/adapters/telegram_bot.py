@@ -75,8 +75,8 @@ class TelegramBot:
 
     def _send_confirm(self, chat_id: object, action) -> None:
         keyboard = {"inline_keyboard": [[
-            {"text": "✓ Підтвердити", "callback_data": f"confirm:{action.nonce}"},
-            {"text": "✗ Скасувати", "callback_data": f"cancel:{action.nonce}"},
+            {"text": self._strings.get("btn_confirm"), "callback_data": f"confirm:{action.nonce}"},
+            {"text": self._strings.get("btn_cancel"), "callback_data": f"cancel:{action.nonce}"},
         ]]}
         self._api("sendMessage", {
             "chat_id": chat_id,
