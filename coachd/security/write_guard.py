@@ -50,10 +50,10 @@ def guard_deny_reason(action: PendingAction) -> str:
     the confirm buttons separately. Without the "do not retry" steer the model
     would attempt other write tools and park duplicates."""
     return (
-        "Цю дію поставлено в чергу на підтвердження користувача в Telegram. "
-        "НЕ викликай інструменти запису повторно і не шукай інший спосіб залити дані. "
-        "Натомість коротко підсумуй користувачу, що ти пропонуєш (тип, тривалість, "
-        "зони/цілі) — кнопки підтвердження він побачить окремо."
+        "This action has been queued for the user to confirm in Telegram. "
+        "Do NOT call write tools again and don't look for another way to push the data. "
+        "Instead, briefly summarise for the user what you're proposing (type, duration, "
+        "zones/targets) — they'll see the confirm buttons separately."
     )
 
 

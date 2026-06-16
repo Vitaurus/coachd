@@ -25,6 +25,8 @@ from __future__ import annotations
 
 from typing import Annotated
 
+from ..core.i18n import TODAY_MARKER
+
 SERVER_NAME = "coachd"
 CREATE_AND_SCHEDULE_RUN = "create_and_schedule_run"
 
@@ -32,29 +34,29 @@ CREATE_AND_SCHEDULE_RUN = "create_and_schedule_run"
 COMPOSITE_TOOLS: tuple[str, ...] = (f"mcp__{SERVER_NAME}__{CREATE_AND_SCHEDULE_RUN}",)
 
 _RUN_DESC = (
-    "Створити бігове / walk-run тренування І ОДРАЗУ запланувати його на конкретну "
-    "дату календаря Garmin — одним підтвердженням. Використовуй САМЕ цей тул (а не "
-    "create_walk_run_workout), коли користувач просить запланувати пробіжку на день "
-    "(«на завтра», «на середу», «на 16 червня»). schedule_date — обовʼязкова дата "
-    "YYYY-MM-DD; рахуй відносні дні від рядка «Сьогодні:» у повідомленні."
+    "Create a running / walk-run workout AND immediately schedule it for a specific "
+    "Garmin calendar date — with one confirmation. Use THIS tool (not "
+    "create_walk_run_workout) when the user asks to schedule a run on a day "
+    "(\"for tomorrow\", \"on Wednesday\", \"on June 16\"). schedule_date is a required "
+    f"YYYY-MM-DD date; count relative days from the '{TODAY_MARKER}' line in the message."
 )
 
 _RUN_SCHEMA = {
-    "name": Annotated[str, "Назва тренування, напр. 'Easy Z2 Run'"],
-    "run_seconds": Annotated[int, "Тривалість одного бігового інтервалу, секунд"],
-    "walk_seconds": Annotated[int, "Тривалість ходьби/відновлення, секунд (0 якщо суцільний біг)"],
-    "repeats": Annotated[int, "Кількість повторів блоку біг/ходьба (1 для рівного бігу)"],
-    "warmup_min": Annotated[int, "Розминка, хвилин"],
-    "cooldown_min": Annotated[int, "Заминка, хвилин"],
-    "hr_zone": Annotated[str, "Цільова зона ЧСС: Z1, Z2, Z3, Z4 або Z5"],
-    "schedule_date": Annotated[str, "Дата календаря YYYY-MM-DD, на яку запланувати тренування"],
+    "name": Annotated[str, "Workout name, e.g. 'Easy Z2 Run'"],
+    "run_seconds": Annotated[int, "Duration of one running interval, seconds"],
+    "walk_seconds": Annotated[int, "Duration of walking/recovery, seconds (0 for a continuous run)"],
+    "repeats": Annotated[int, "Number of repeats of the run/walk block (1 for a steady run)"],
+    "warmup_min": Annotated[int, "Warm-up, minutes"],
+    "cooldown_min": Annotated[int, "Cool-down, minutes"],
+    "hr_zone": Annotated[str, "Target HR zone: Z1, Z2, Z3, Z4 or Z5"],
+    "schedule_date": Annotated[str, "Calendar date YYYY-MM-DD to schedule the workout for"],
 }
 
 
 async def _parked(args: dict) -> dict:  # pragma: no cover - never invoked (guard denies first)
     """Sentinel handler. The write-guard parks+denies this tool before the SDK
     would call it; the confirmed write runs in GarminMcpExecutor against garmin-mcp."""
-    return {"content": [{"type": "text", "text": "поставлено в чергу на підтвердження"}],
+    return {"content": [{"type": "text", "text": "queued for confirmation"}],
             "is_error": True}
 
 

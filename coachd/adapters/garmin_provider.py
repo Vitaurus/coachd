@@ -20,6 +20,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from ..core.i18n import TODAY_MARKER
+
 # Read-only tools. First 40 mirror coach.sh (reports); the last 3 are the
 # workout/course READ tools chat added for context. All safe to expose anywhere.
 READ_TOOLS: tuple[str, ...] = (
@@ -63,20 +65,21 @@ FORBIDDEN_TOOLS: tuple[str, ...] = (
 )
 
 _FRAGMENT = (
-    "Дані надходять з Garmin Connect через MCP-тули mcp__garmin__* (жива телеметрія "
-    "годинника: сон, HRV, готовність, навантаження, стрес, активності). "
-    "Тул-підказки: бери сон через get_sleep_summary (get_sleep_data важкий); "
-    "recovery — лише з get_training_readiness (get_training_status для цього ненадійний); "
-    "віддавай перевагу trend/weekly/summary-ендпоінтам над важкими поденними циклами.\n"
-    "СТВОРЕННЯ/ПЛАНУВАННЯ ТРЕНУВАНЬ — вибір тула:\n"
-    "• Користувач просить ЗАПЛАНУВАТИ пробіжку на день («склади і заплануй на завтра», "
-    "«постав біг на середу») → виклич create_and_schedule_run(..., "
-    "schedule_date='YYYY-MM-DD'). Цей тул створює тренування І ставить його в календар "
-    "одним підтвердженням. Дату бери з рядка «Сьогодні:» нижче й рахуй відносні дні.\n"
-    "• Користувач просить лише СКЛАСТИ/зберегти тренування (без дати) → "
-    "create_walk_run_workout / create_strength_workout (потрапляє лише в бібліотеку).\n"
-    "• Запланувати ВЖЕ ІСНУЮЧЕ тренування на дату → спершу get_workouts, візьми реальний "
-    "workout_id, тоді schedule_workout(workout_id, calendar_date). НЕ вгадуй id."
+    "Data comes from Garmin Connect via the mcp__garmin__* MCP tools (live watch "
+    "telemetry: sleep, HRV, readiness, load, stress, activities). "
+    "Tool hints: take sleep via get_sleep_summary (get_sleep_data is heavy); "
+    "recovery — only from get_training_readiness (get_training_status is unreliable "
+    "for it); prefer trend/weekly/summary endpoints over heavy per-day cycles.\n"
+    "CREATING/SCHEDULING WORKOUTS — tool choice:\n"
+    "• The user asks to SCHEDULE a run on a day (\"plan and schedule for tomorrow\", "
+    "\"put a run on Wednesday\") → call create_and_schedule_run(..., "
+    "schedule_date='YYYY-MM-DD'). This tool creates the workout AND puts it on the "
+    f"calendar with one confirmation. Take the date from the '{TODAY_MARKER}' line "
+    "below and count relative days.\n"
+    "• The user asks only to BUILD/save a workout (no date) → "
+    "create_walk_run_workout / create_strength_workout (goes to the library only).\n"
+    "• Schedule an ALREADY EXISTING workout for a date → first get_workouts, take the "
+    "real workout_id, then schedule_workout(workout_id, calendar_date). Do NOT guess the id."
 )
 
 
