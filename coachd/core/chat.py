@@ -70,6 +70,15 @@ class ChatEngine:
             return f"{today}\n\nPrevious conversation:\n{history}\n\nUser: {text}"
         return f"{today}\n\nUser: {text}"
 
+    def note(self, chat_id: object, text: str) -> None:
+        """Record an out-of-band assistant action (a confirmed write's result)
+        into chat history, so future turns remember what the coach actually DID,
+        not just what it PROPOSED. Without this the coach recalls only the proposal
+        — often phrased relatively ("the day after tomorrow") — and re-resolves it
+        against the current day, drifting the date; the executor status carries the
+        absolute date, anchoring an accurate recall."""
+        self._sessions.append(chat_id, "assistant", text)
+
     async def run_chat(self, chat_id: object, text: str) -> ChatReply:
         before = {a.nonce for a in self._pending.list_pending()}
 
