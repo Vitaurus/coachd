@@ -161,11 +161,13 @@ jobs:
           cache-to: type=gha,mode=max,scope=voice-amd64
 
       - name: Decode gate (amd64)
+        # --entrypoint python overrides the image ENTRYPOINT (python -m coachd);
+        # without it the args become a coachd subcommand ("unknown command: python").
         run: |
-          docker run --rm --platform linux/amd64 \
+          docker run --rm --platform linux/amd64 --entrypoint python \
             -v "$PWD/tests/fixtures:/fix:ro" \
             coachd-voice:amd64-gate \
-            python -c "from faster_whisper.audio import decode_audio; a=decode_audio('/fix/voice.oga'); assert a.dtype.name=='float32' and 15000<=len(a)<=17000 and a.any(), 'decode regression'; print(f'decode ok: {len(a)} float32 samples')"
+            -c "from faster_whisper.audio import decode_audio; a=decode_audio('/fix/voice.oga'); assert a.dtype.name=='float32' and 15000<=len(a)<=17000 and a.any(), 'decode regression'; print(f'decode ok: {len(a)} float32 samples')"
 
       - name: Build voice (arm64, load)
         uses: docker/build-push-action@v6
@@ -180,10 +182,10 @@ jobs:
 
       - name: Decode gate (arm64, QEMU)
         run: |
-          docker run --rm --platform linux/arm64 \
+          docker run --rm --platform linux/arm64 --entrypoint python \
             -v "$PWD/tests/fixtures:/fix:ro" \
             coachd-voice:arm64-gate \
-            python -c "from faster_whisper.audio import decode_audio; a=decode_audio('/fix/voice.oga'); assert a.dtype.name=='float32' and 15000<=len(a)<=17000 and a.any(), 'decode regression'; print(f'decode ok: {len(a)} float32 samples')"
+            -c "from faster_whisper.audio import decode_audio; a=decode_audio('/fix/voice.oga'); assert a.dtype.name=='float32' and 15000<=len(a)<=17000 and a.any(), 'decode regression'; print(f'decode ok: {len(a)} float32 samples')"
 
       # ── both arches decoded → publish the multi-arch voice manifest ──
       - name: Compose image list
