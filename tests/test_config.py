@@ -12,7 +12,7 @@ _VALID = {
     "TG_BOT_TOKEN": "123:abc",
     "TG_CHAT_ID": "12345",
     "ANTHROPIC_API_KEY": "sk-ant-xxx",
-    "USER_NAME": "Віталій",
+    "USER_NAME": "Олекса",
     "WORN_START": "2026-06-08",
     "TZ": "Europe/Kyiv",
 }
@@ -22,7 +22,7 @@ def test_valid_env_parses():
     c = ServiceConfig.from_env(dict(_VALID))
     assert c.owner_chat_ids == (12345,)
     assert c.worn_start == date(2026, 6, 8)
-    assert c.user_name == "Віталій"
+    assert c.user_name == "Олекса"
     assert c.model == DEFAULT_MODEL
     assert c.use_1m_context is False
 

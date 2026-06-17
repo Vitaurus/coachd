@@ -48,10 +48,10 @@ def test_morning_prompt_has_focus_journal_keys_and_dayworn():
     p = build_report_prompt(
         "morning", TODAY, "2026-06-15 07:00 EEST",
         ["2026-06-14 morning: OK"],
-        user_name="Vitalii", worn_start=WORN,
+        user_name="Oleksa", worn_start=WORN,
     )
     assert "2026-06-14 morning: OK" in p           # journal tail injected
-    assert "Vitalii" in p
+    assert "Oleksa" in p
     assert "READINESS" in p                         # morning focus
     assert "get_sleep_summary" in p
     assert "day 8" in p                             # day_worn = (15-8)+1
@@ -63,7 +63,7 @@ def test_morning_prompt_has_focus_journal_keys_and_dayworn():
 def test_evening_prompt_has_acwr_and_evening_keys():
     p = build_report_prompt(
         "evening", TODAY, "2026-06-15 22:00 EEST", [],
-        user_name="Vitalii", worn_start=WORN,
+        user_name="Oleksa", worn_start=WORN,
     )
     assert "LOAD" in p
     assert "ACWR" in p
