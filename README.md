@@ -4,11 +4,12 @@ Open-source, self-hosted AI health coach over your **Garmin Connect** data, in
 **Telegram**. You run your own instance with your own Garmin login and your own
 Anthropic API key. Your data, your keys, your machine.
 
-> **Status: early.** This is a greenfield rewrite in progress. Today the Garmin
-> login bootstrap (below) works. The coach loop (reports + chat + workout
-> creation) is being built. Watch the repo.
+> **Status: early, but the loop works end-to-end.** Greenfield rewrite. Today the
+> full loop runs: scheduled reports, chat over your live Garmin data (text,
+> photos, opt-in voice), and confirmation-first workout creation. It rides
+> unofficial Garmin access (see disclaimers), so treat it as beta. Watch the repo.
 
-## The loop (what it will do)
+## The loop
 - **Reports** — a morning/evening verdict pushed to Telegram, computed from your
   Garmin metrics (HRV, recovery, training load, sleep).
 - **Chat** — ask "why am I tired today?" and get an answer over your live data.
@@ -76,9 +77,10 @@ This runs the timezone-aware report scheduler (morning/evening verdicts pushed t
 Telegram; times via `MORNING_TIME`/`EVENING_TIME`, default 07:30/22:15). When a
 token expires you get a Telegram nudge to re-run `login`.
 
-Status: scheduled reports work. The interactive chat (ask questions, create
-workouts) is landing next. Report generation needs the bundled `claude` CLI in
-the image — see the Docker notes if you build it yourself.
+Beyond the scheduled reports, the bot answers chat at any time — ask a question,
+send a photo, or (on a voice image) a voice note — and creates workouts on your
+watch, always confirmation-first. The `claude` CLI that the Agent SDK drives is
+bundled in the image, so there's no extra setup.
 
 ## Run from a published image (instead of building)
 Prefer not to build locally? Each release publishes prebuilt, multi-arch images
