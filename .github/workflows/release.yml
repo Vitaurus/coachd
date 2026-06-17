@@ -80,7 +80,7 @@ jobs:
         run: |
           IMAGES="ghcr.io/${GITHUB_REPOSITORY,,}"
           if [ -n "$DH" ]; then
-            IMAGES="$IMAGES"$'\n'"docker.io/${DH}/coachd"
+            IMAGES="$IMAGES"$'\n'"docker.io/${DH,,}/coachd"
           fi
           {
             echo "list<<EOF"
@@ -193,7 +193,7 @@ jobs:
         run: |
           IMAGES="ghcr.io/${GITHUB_REPOSITORY,,}"
           if [ -n "$DH" ]; then
-            IMAGES="$IMAGES"$'\n'"docker.io/${DH}/coachd"
+            IMAGES="$IMAGES"$'\n'"docker.io/${DH,,}/coachd"
           fi
           {
             echo "list<<EOF"

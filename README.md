@@ -84,12 +84,16 @@ bundled in the image, so there's no extra setup.
 
 ## Run from a published image (instead of building)
 Prefer not to build locally? Each release publishes prebuilt, multi-arch images
-(`linux/amd64` + `linux/arm64`, auto-selected for your host) to GHCR — and to
-Docker Hub once that mirror is configured:
+(`linux/amd64` + `linux/arm64`, auto-selected for your host) to **GHCR** and
+**Docker Hub** — mirrors of the same image, pull from whichever you like:
 
 ```bash
+# GitHub Container Registry
 docker pull ghcr.io/vitaurus/coachd:latest          # text-only (lean)
 docker pull ghcr.io/vitaurus/coachd:latest-voice    # with local voice/STT
+# Docker Hub
+docker pull vitaurus/coachd:latest                  # text-only (lean)
+docker pull vitaurus/coachd:latest-voice            # with local voice/STT
 ```
 
 Tags: `:latest` / `:latest-voice` track the newest release; `:vX.Y.Z` (and the
