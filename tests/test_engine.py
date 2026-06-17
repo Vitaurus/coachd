@@ -51,7 +51,7 @@ def _engine(tmp_path, llm, *, tries=3):
     eng = CoachEngine(
         llm=llm,
         journal=Journal(tmp_path / "journal.jsonl"),
-        user_name="Віталій",
+        user_name="Олекса",
         worn_start=WORN,
         strings=Strings("uk"),  # assertions below pin the Ukrainian headers/notices
         policy=RetryPolicy(max_tries=tries, retry_wait_s=240.0),

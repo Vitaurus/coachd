@@ -24,7 +24,7 @@ def _config(tmp_path):
         "TG_BOT_TOKEN": "123:abc",
         "TG_CHAT_ID": "12345",
         "ANTHROPIC_API_KEY": "sk-ant-x",
-        "USER_NAME": "Віталій",
+        "USER_NAME": "Олекса",
         "WORN_START": "2026-06-08",
         "TZ": "Europe/Kyiv",
         "GARMINTOKENS": str(tmp_path / "garmin"),
@@ -142,7 +142,7 @@ def test_build_app_constructs_unloaded_transcriber_when_voice_enabled(tmp_path):
 def test_build_app_no_transcriber_when_voice_disabled(tmp_path):
     cfg = ServiceConfig.from_env({
         "TG_BOT_TOKEN": "123:abc", "TG_CHAT_ID": "12345",
-        "ANTHROPIC_API_KEY": "sk-ant-x", "USER_NAME": "Віталій",
+        "ANTHROPIC_API_KEY": "sk-ant-x", "USER_NAME": "Олекса",
         "WORN_START": "2026-06-08", "TZ": "Europe/Kyiv",
         "GARMINTOKENS": str(tmp_path / "garmin"),
         "VOICE_ENABLED": "false",

@@ -19,8 +19,8 @@ def _msg(cid, *, type="private", **chat):
 
 
 def test_private_chat_uses_first_name():
-    refs = parse_chat_ids([_msg(123, first_name="Віталій")])
-    assert refs == [ChatRef(id=123, label="Віталій", type="private")]
+    refs = parse_chat_ids([_msg(123, first_name="Олекса")])
+    assert refs == [ChatRef(id=123, label="Олекса", type="private")]
 
 
 def test_group_chat_uses_title():
@@ -93,7 +93,7 @@ def test_make_api_parses_getupdates(monkeypatch):
 # --------------------------------------------------------------------------- #
 def test_chat_id_found_prints_paste_line(monkeypatch, capsys):
     monkeypatch.setenv("TG_BOT_TOKEN", "123:abc")
-    rc = cli._chat_id(discover=lambda token: [ChatRef(99, "Віталій", "private")])
+    rc = cli._chat_id(discover=lambda token: [ChatRef(99, "Олекса", "private")])
     out = capsys.readouterr().out
     assert rc == 0
     assert "99" in out
