@@ -26,7 +26,57 @@ Anthropic API key. Your data, your keys, your machine.
   [console.anthropic.com](https://console.anthropic.com), or a Claude Pro/Max
   subscription (run `claude setup-token` to mint a token)
 
-## Setup
+## Quick start (no clone — just Docker)
+The fastest path: create two files, fill in your secrets, run. No `git clone`, no
+build — this pulls the prebuilt image.
+
+**1. `docker-compose.yml`** — copy as-is:
+```yaml
+services:
+  coachd:
+    image: vitaurus/coachd:latest      # text-only; use :latest-voice for voice notes
+    env_file: .env
+    volumes:
+      - ./data:/data                   # Garmin tokens + coach state live here — keep out of git
+    restart: unless-stopped
+```
+
+**2. `.env`** — create it next to the compose file and fill in:
+```bash
+TG_BOT_TOKEN=                  # from @BotFather
+TG_CHAT_ID=                    # leave blank for now — you fill it in step 4
+ANTHROPIC_API_KEY=             # sk-ant-api… from console.anthropic.com …
+# CLAUDE_CODE_OAUTH_TOKEN=     # …OR a Claude Pro/Max token; set EXACTLY one of the two
+USER_NAME=                     # your name, used in the coach's prompts
+WORN_START=2026-06-08          # first day you wore the watch (ISO date)
+TZ=Europe/Kyiv                 # your timezone — REQUIRED for correct timing
+# COACH_LANG=uk                # optional: coach language (en default / uk)
+```
+
+**3. Log in to Garmin** — one-time, interactive (email, password, and an MFA code):
+```bash
+docker compose run --rm coachd login
+```
+
+**4. Get your Telegram chat id** — message your bot once, then:
+```bash
+docker compose run --rm coachd chat-id
+```
+Paste the printed `TG_CHAT_ID=…` line into `.env`.
+
+**5. Start it:**
+```bash
+docker compose up -d
+```
+
+Scheduled reports begin and the bot answers chat + photos. Want **voice notes**?
+Change the image to `vitaurus/coachd:latest-voice` and re-run step 5. Each step
+(MFA, households, token refresh, all env vars) is explained in detail below.
+
+## Setup (clone & build from source)
+Cloning the repo gives you the committed `docker-compose.yml` (which builds the
+image locally) and `.env.example` to copy. The steps below also document every
+command in more depth than the Quick start above.
 
 ### 1. Log in to Garmin (one-time, interactive)
 Garmin's first login needs your email, password, and an MFA code, so it cannot
@@ -101,15 +151,10 @@ Tags: `:latest` / `:latest-voice` track the newest release; `:X.Y.Z` (e.g.
 no `v` prefix even though the git release tag does. The `-voice` images bundle
 faster-whisper (see *Voice notes* below); the bare images are text-only.
 
-To use a published image with Compose, comment out the `build:` block in
-`docker-compose.yml` and point `image:` at the pulled tag:
-```yaml
-  coachd:
-    # build: …            # ← comment out to use the published image
-    image: ghcr.io/vitaurus/coachd:latest   # or :latest-voice for voice
-```
-Then `docker compose up -d` pulls instead of building. The `login` / `chat-id` /
-`token-status` one-time commands work the same against the published image.
+To run from a published image **without cloning**, use the **Quick start** above —
+it gives a self-contained `docker-compose.yml` that pulls instead of builds. If
+you already cloned, switch the committed compose to a published image by
+commenting out its `build:` block and setting `image:` to one of the tags above.
 
 ## Voice notes (optional)
 Voice transcription runs **on your box** (local whisper, no API, no audio leaves
