@@ -96,9 +96,10 @@ docker pull vitaurus/coachd:latest                  # text-only (lean)
 docker pull vitaurus/coachd:latest-voice            # with local voice/STT
 ```
 
-Tags: `:latest` / `:latest-voice` track the newest release; `:vX.Y.Z` (and the
-rolling `:vX.Y`) pin a specific version. The `-voice` images bundle faster-whisper
-(see *Voice notes* below); the bare images are text-only.
+Tags: `:latest` / `:latest-voice` track the newest release; `:X.Y.Z` (e.g.
+`:0.1.0`) and the rolling `:X.Y` pin a specific version — note the image tag has
+no `v` prefix even though the git release tag does. The `-voice` images bundle
+faster-whisper (see *Voice notes* below); the bare images are text-only.
 
 To use a published image with Compose, comment out the `build:` block in
 `docker-compose.yml` and point `image:` at the pulled tag:
