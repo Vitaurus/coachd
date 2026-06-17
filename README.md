@@ -80,6 +80,30 @@ Status: scheduled reports work. The interactive chat (ask questions, create
 workouts) is landing next. Report generation needs the bundled `claude` CLI in
 the image — see the Docker notes if you build it yourself.
 
+## Run from a published image (instead of building)
+Prefer not to build locally? Each release publishes prebuilt, multi-arch images
+(`linux/amd64` + `linux/arm64`, auto-selected for your host) to GHCR — and to
+Docker Hub once that mirror is configured:
+
+```bash
+docker pull ghcr.io/vitaurus/coachd:latest          # text-only (lean)
+docker pull ghcr.io/vitaurus/coachd:latest-voice    # with local voice/STT
+```
+
+Tags: `:latest` / `:latest-voice` track the newest release; `:vX.Y.Z` (and the
+rolling `:vX.Y`) pin a specific version. The `-voice` images bundle faster-whisper
+(see *Voice notes* below); the bare images are text-only.
+
+To use a published image with Compose, comment out the `build:` block in
+`docker-compose.yml` and point `image:` at the pulled tag:
+```yaml
+  coachd:
+    # build: …            # ← comment out to use the published image
+    image: ghcr.io/vitaurus/coachd:latest   # or :latest-voice for voice
+```
+Then `docker compose up -d` pulls instead of building. The `login` / `chat-id` /
+`token-status` one-time commands work the same against the published image.
+
 ## Voice notes (optional)
 Voice transcription runs **on your box** (local whisper, no API, no audio leaves
 the host) — but it's **off by default** because the faster-whisper stack adds
