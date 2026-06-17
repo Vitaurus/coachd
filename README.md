@@ -184,5 +184,11 @@ text-only image, voice notes get a "type instead" reply; everything else works.
 - **Bring your own secrets.** Garmin tokens, your Anthropic key, and your Telegram
   credentials live only in your `.env` / mounted volumes. Never commit them.
 
+## Contributing
+Contributions welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for the dev setup,
+the hexagonal architecture, and the invariants to respect (owner-gate, write-guard
+confirmation-first, English-only source). Found a security issue? Report it
+privately per [SECURITY.md](SECURITY.md), not in a public issue.
+
 ## License
 MIT. See [LICENSE](LICENSE).
