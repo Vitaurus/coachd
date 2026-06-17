@@ -13,19 +13,22 @@ pros/cons, and what it's blocked by.
   during the build adds network-at-build → non-deterministic image (the exact thing the
   Dockerfile's Garmin-MCP note brags about avoiding). Needs a multi-stage build that fetches
   to a non-`data` path, and an image-size budget that doesn't exist until release-CI.
-- **Depends on:** release-CI / image-publish phase (roadmap #3). Decide bake-vs-runtime
-  with the image budget + publish pipeline known.
+- **Depends on:** ~~release-CI / image-publish phase~~ — NOW EXISTS
+  (`release.yml`, 2026-06-17). Unblocked, but DEFERRED: still a niche (air-gapped)
+  audience and a heavy cost (+~480MB small / +~1.5GB medium per voice image), and
+  it forks the publish matrix on a new axis (baked vs download × arch × model-size).
+  Revisit on real air-gapped demand; pick a model-size to bake then.
+- **Decision:** plan-eng-review 2026-06-17, D5 = defer.
 - **Surfaced by:** plan-eng-review 2026-06-16, Tension 3 (outside voice).
 
-## [voice] Decode smoke → automated CI job
-- **What:** Run the model-free `decode_audio(BytesIO(ogg))` OGG/Opus check on the BUILT
-  image in CI, on each target arch.
-- **Why:** faster-whisper's `av` wheels bundle ffmpeg, so no system ffmpeg is needed — but
-  that's arch-specific (an arm64 wheel gap or a source build silently pulls system ffmpeg).
-  A manual smoke rots; the decode path is load-bearing for all of voice.
-- **Pros:** Continuously guards the decode/transport assumption; catches arm64 regressions
-  before a user files "voice does nothing."
-- **Cons:** Needs an image-build workflow (`ci.yml` only runs pytest today).
-- **Depends on:** release-CI / image-build workflow (roadmap #3). The voice plan ships the
-  smoke as an operator/built-image check now; this TODO automates it.
-- **Surfaced by:** plan-eng-review 2026-06-16, outside voice (feasibility).
+## [voice] Decode smoke → automated CI job — ✅ DONE (2026-06-17)
+- **Shipped in:** `.github/workflows/release.yml` (`publish-voice` job). Before any
+  voice tag is pushed, each arch is built single-platform with `--load`, then a
+  model-free decode runs against the freshly-built image:
+  `docker run --platform linux/<arch> -v tests/fixtures:/fix:ro <img> python -c
+  "decode_audio('/fix/voice.oga') …"`. A decode regression fails the job before
+  the manifest is published, on BOTH amd64 and arm64 (arm64 under QEMU).
+- **Why it lives there, not in `ci.yml`:** the check needs the voice image (av +
+  faster_whisper present), which only exists at publish time. `ci.yml` stays
+  tests-only.
+- **Resolved by:** plan-eng-review 2026-06-17, D4 (decode-gate ON, per-arch).

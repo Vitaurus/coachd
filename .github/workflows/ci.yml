@@ -1,8 +1,9 @@
 name: CI
 
-# Guard the test suite on every push to main and every PR. The 201-test suite is
-# the safety net (it includes the Cyrillic-guard that proves the source stays
-# English-only); keep it green automatically.
+# Guard the test suite on every push to main and every PR. The suite is the
+# safety net (it includes the Cyrillic-guard that proves the source stays
+# English-only); keep it green automatically. Image build/publish lives in
+# release.yml (tag-triggered); this job is tests only.
 on:
   push:
     branches: [main]

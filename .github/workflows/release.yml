@@ -1,0 +1,231 @@
+name: release
+
+# Build & publish the coachd image. Two distinct triggers (eng-review D3):
+#  - push to a vX.Y.Z tag (or manual dispatch) → publish the FULL matrix:
+#    lean + voice, each linux/amd64 + linux/arm64, to GHCR (+ Docker Hub mirror).
+#  - push to main → build lean-amd64 ONLY, no push. A cheap (~3-5 min, no QEMU)
+#    Dockerfile-regression guard: `pytest` in ci.yml never builds the image, so a
+#    broken Dockerfile would otherwise surface only at release time.
+on:
+  push:
+    branches: [main]
+    tags: ['v*.*.*']
+  workflow_dispatch:
+
+# Don't cancel an in-flight release (a tag build must finish); main build-health
+# runs are cheap enough that ref-scoped non-cancel is fine.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  # ── main only: validate the Dockerfile builds, don't publish ───────────────
+  build-health:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      # Native amd64, no QEMU. push:false → builds & discards (cache still warms),
+      # proving the lean Dockerfile compiles on every commit.
+      - name: Build lean (amd64, no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: false
+          cache-from: type=gha,scope=lean-amd64
+          cache-to: type=gha,mode=max,scope=lean-amd64
+
+  # ── tag / dispatch: publish lean (multi-arch manifest list) ────────────────
+  publish-lean:
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    # Job-level so the Hub-login `if` can read it (a step's own env is not
+    # reliably visible in that same step's `if`).
+    env:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Hub leg is OPTIONAL: lights up only once DOCKERHUB_TOKEN exists, so the
+      # workflow ships on GHCR day one (eng-review D2 operator action item).
+      - name: Log in to Docker Hub
+        if: ${{ env.DOCKERHUB_USERNAME != '' }}
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # Compose the image list: always GHCR, + Docker Hub when its creds exist.
+      - name: Compose image list
+        id: imgs
+        env:
+          DH: ${{ secrets.DOCKERHUB_USERNAME }}
+        run: |
+          IMAGES="ghcr.io/${GITHUB_REPOSITORY,,}"
+          if [ -n "$DH" ]; then
+            IMAGES="$IMAGES"$'\n'"docker.io/${DH}/coachd"
+          fi
+          {
+            echo "list<<EOF"
+            echo "$IMAGES"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Derive tags (lean)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.imgs.outputs.list }}
+          # latest=auto → `latest` on the highest semver tag. Rolling vX.Y for
+          # minor-pinning; sha so a manual dispatch still yields a usable tag.
+          flavor: |
+            latest=auto
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha
+
+      - name: Build & push lean (amd64 + arm64)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=lean-multi
+          cache-to: type=gha,mode=max,scope=lean-multi
+
+  # ── tag / dispatch: gate voice per-arch on decode, THEN publish ────────────
+  publish-voice:
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to Docker Hub
+        if: ${{ env.DOCKERHUB_USERNAME != '' }}
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # ── decode gate (eng-review D4) ──
+      # The voice image bundles `av` (the OGG/Opus decoder). The amd64 and arm64
+      # `av` wheels are DIFFERENT binaries — a broken/absent arm64 wheel would
+      # ship voice that silently can't decode. So per arch: build with --load
+      # (single-platform, into local docker), then run a model-free decode of a
+      # real OGG tone. No pytest in the image — a bare `python -c` against the
+      # fixture mounted from the checkout (Dockerfile COPYs only coachd/, not
+      # tests/). A regression fails the job BEFORE anything is pushed.
+      - name: Build voice (amd64, load)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          build-args: VOICE=true
+          platforms: linux/amd64
+          load: true
+          tags: coachd-voice:amd64-gate
+          cache-from: type=gha,scope=voice-amd64
+          cache-to: type=gha,mode=max,scope=voice-amd64
+
+      - name: Decode gate (amd64)
+        run: |
+          docker run --rm --platform linux/amd64 \
+            -v "$PWD/tests/fixtures:/fix:ro" \
+            coachd-voice:amd64-gate \
+            python -c "from faster_whisper.audio import decode_audio; a=decode_audio('/fix/voice.oga'); assert a.dtype.name=='float32' and 15000<=len(a)<=17000 and a.any(), 'decode regression'; print(f'decode ok: {len(a)} float32 samples')"
+
+      - name: Build voice (arm64, load)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          build-args: VOICE=true
+          platforms: linux/arm64
+          load: true
+          tags: coachd-voice:arm64-gate
+          cache-from: type=gha,scope=voice-arm64
+          cache-to: type=gha,mode=max,scope=voice-arm64
+
+      - name: Decode gate (arm64, QEMU)
+        run: |
+          docker run --rm --platform linux/arm64 \
+            -v "$PWD/tests/fixtures:/fix:ro" \
+            coachd-voice:arm64-gate \
+            python -c "from faster_whisper.audio import decode_audio; a=decode_audio('/fix/voice.oga'); assert a.dtype.name=='float32' and 15000<=len(a)<=17000 and a.any(), 'decode regression'; print(f'decode ok: {len(a)} float32 samples')"
+
+      # ── both arches decoded → publish the multi-arch voice manifest ──
+      - name: Compose image list
+        id: imgs
+        env:
+          DH: ${{ secrets.DOCKERHUB_USERNAME }}
+        run: |
+          IMAGES="ghcr.io/${GITHUB_REPOSITORY,,}"
+          if [ -n "$DH" ]; then
+            IMAGES="$IMAGES"$'\n'"docker.io/${DH}/coachd"
+          fi
+          {
+            echo "list<<EOF"
+            echo "$IMAGES"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Derive tags (voice)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.imgs.outputs.list }}
+          # suffix=-voice,onlatest=true → vX.Y.Z-voice + latest-voice.
+          flavor: |
+            latest=auto
+            suffix=-voice,onlatest=true
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha
+
+      # Cache hit from the per-arch gate builds → this multi-arch push is fast.
+      - name: Build & push voice (amd64 + arm64)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          build-args: VOICE=true
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: |
+            type=gha,scope=voice-amd64
+            type=gha,scope=voice-arm64
+          cache-to: type=gha,mode=max,scope=voice-multi
