@@ -10,7 +10,7 @@ services:
     image: coachd:dev
     env_file:
       # optional: `login` / `token-status` need no .env (GARMINTOKENS is set
-      # below). `serve` reads TG/ANTHROPIC from .env when the loop lands.
+      # below). `serve` reads TG + Anthropic creds from .env.
       - path: .env
         required: false
     environment:
