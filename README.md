@@ -124,7 +124,7 @@ Then:
 docker compose up -d
 ```
 This runs the timezone-aware report scheduler (morning/evening verdicts pushed to
-Telegram; times via `MORNING_TIME`/`EVENING_TIME`, default 07:30/22:15). When a
+Telegram; times via `MORNING_TIME`/`EVENING_TIME`, default 07:00/22:00). When a
 token expires you get a Telegram nudge to re-run `login`.
 
 Beyond the scheduled reports, the bot answers chat at any time — ask a question,
@@ -155,6 +155,54 @@ To run from a published image **without cloning**, use the **Quick start** above
 it gives a self-contained `docker-compose.yml` that pulls instead of builds. If
 you already cloned, switch the committed compose to a published image by
 commenting out its `build:` block and setting `image:` to one of the tags above.
+
+## Configuration
+All configuration is via environment variables (put them in `.env`). The `login`
+and `token-status` commands need only `GARMINTOKENS` + `TZ`; the running coach
+(`serve`) needs every **Required** variable below.
+
+### Required (for `serve`)
+| Variable | Default | What it does |
+|---|---|---|
+| `TG_BOT_TOKEN` | — | Telegram bot token from [@BotFather](https://t.me/BotFather). |
+| `TG_CHAT_ID` | — | Owner chat id(s) the bot answers — comma-separated for a household (`111,222`). This is the **only** trust boundary; `docker compose run --rm coachd chat-id` prints it. |
+| `ANTHROPIC_API_KEY` **or** `CLAUDE_CODE_OAUTH_TOKEN` | — | Anthropic credential — set **exactly one**. An API key (`sk-ant-api…`) from console.anthropic.com, **or** a Claude Pro/Max token from `claude setup-token` (`sk-ant-oat…`). An OAuth token placed in `ANTHROPIC_API_KEY` is rejected with 401. |
+| `USER_NAME` | — | Your name, used in the coach's prompts. |
+| `WORN_START` | — | First day you wore the watch (ISO `YYYY-MM-DD`) — anchors "day N" and the baseline math. |
+| `TZ` | `Europe/Kyiv` * | Your timezone (IANA, e.g. `Europe/Kyiv`). Required — a wrong TZ skews report timing and night/recovery attribution. |
+
+\* `.env.example` pre-fills `Europe/Kyiv`, but `TZ` has no real default — it must be set.
+
+### Garmin tokenstore
+| Variable | Default | What it does |
+|---|---|---|
+| `GARMINTOKENS` | `/data/garmin` | Directory for Garmin OAuth tokens (a mounted volume). Leave as-is unless you remap the volume. |
+
+### Optional — coach behavior
+| Variable | Default | What it does |
+|---|---|---|
+| `COACH_LANG` | `en` | Output language the coach speaks: `en` or `uk`. The prompt corpus is English internally; this changes the output and the bot's chrome only. |
+| `MORNING_TIME` | `07:00` | Morning report time (`HH:MM`, 24h, in your `TZ`). |
+| `EVENING_TIME` | `22:00` | Evening report time (`HH:MM`, 24h, in your `TZ`). |
+| `MODEL` | `claude-sonnet-4-6` | Coaching model. Set `claude-opus-4-8` for max quality (you pay for your own key). |
+| `USE_1M_CONTEXT` | `false` | Enable the 1M-context beta. Only affects **API-key** auth; ignored under a Claude subscription (OAuth) token. |
+
+### Optional — voice notes (local STT)
+Voice is **opt-in at build time** to keep the default image lean. `VOICE` is a
+**build-arg**, not a runtime toggle — changing it requires a rebuild. The knobs
+below take effect only on a voice image.
+
+| Variable | Default | What it does |
+|---|---|---|
+| `VOICE` (build-arg) | `false` | Build-time: `true` installs faster-whisper (~320MB) **and** bakes the runtime default on. Set it in `.env` (or `VOICE=true docker compose build`) and **rebuild**. |
+| `VOICE_ENABLED` | follows `VOICE` † | Runtime toggle. Run a voice-capable image with voice **off** by setting `false` — no rebuild needed. |
+| `WHISPER_MODEL` | `small` | Whisper model size. `small` is the fail-safe; `medium` (~1.5GB RAM, slower) is noticeably better for Ukrainian/accented speech. |
+| `WHISPER_COMPUTE` | `int8` | Quantization. `int8` = lean CPU choice; `int8_float32`/`float32` trade RAM/CPU for a little accuracy. Valid: `int8, int8_float16, int8_float32, int16, float16, float32`. |
+| `MAX_VOICE_SECONDS` | `300` | Reject voice notes longer than this many seconds. |
+| `STT_DOWNLOAD_ROOT` | `/data/whisper` | Where the whisper model is cached (a persisted volume → downloaded once, survives restarts). |
+
+† The image bakes `VOICE_ENABLED` to match the `VOICE` build-arg: a lean image
+defaults it **off**, a voice image **on**. `VOICE_ENABLED` overrides that at runtime.
 
 ## Voice notes (optional)
 Voice transcription runs **on your box** (local whisper, no API, no audio leaves
