@@ -1,10 +1,10 @@
 """Tests for the #0 Garmin MFA bootstrap + token-state classification.
 
 Fully headless: the Garmin client and all prompts are injected, so nothing here
-touches a TTY or the network. The token files written by the fake mirror what
-garminconnect's ``client.dump()`` produces (``oauth1_token.json`` /
-``oauth2_token.json``), so the file-presence probe in ``token_status`` is
-exercised against realistic on-disk shape.
+touches a TTY or the network. The token file written by the fake mirrors what
+garminconnect 0.3.6's ``client.dump()`` produces (a single ``garmin_tokens.json``
+inside the tokenstore dir), so the file-presence probe in ``token_status`` is
+exercised against the real on-disk shape.
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ from coachd.auth.garmin_login import (
 # --------------------------------------------------------------------------- #
 class _FakeGarthClient:
     """Stands in for garminconnect's internal client; records the dump path and
-    writes the two token files exactly where the real one would."""
+    writes the token file exactly where the real one would."""
 
     def __init__(self, record: dict) -> None:
         self._record = record
@@ -42,8 +42,14 @@ class _FakeGarthClient:
     def dump(self, path: str) -> None:
         self._record["dumped_to"] = path
         store = Path(path)
-        (store / "oauth1_token.json").write_text("{}")
-        (store / "oauth2_token.json").write_text("{}")
+        # mirror garminconnect 0.3.6: a dir (or non-.json path) → garmin_tokens.json
+        target = (
+            store / "garmin_tokens.json"
+            if store.is_dir() or not store.name.endswith(".json")
+            else store
+        )
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("{}")
 
 
 class _FakeGarmin:
@@ -101,8 +107,7 @@ def test_run_login_saves_tokens_and_runs_mfa(tmp_path):
     assert record["password"] == "hunter2"
     assert record["mfa_entered"] == "123456"
     # tokens persisted to the store
-    assert (tmp_path / "oauth1_token.json").exists()
-    assert (tmp_path / "oauth2_token.json").exists()
+    assert (tmp_path / "garmin_tokens.json").exists()
     assert record["dumped_to"] == str(tmp_path)
     assert any("saved" in line for line in out_lines)
 
@@ -121,7 +126,7 @@ def test_run_login_without_mfa_skips_callback(tmp_path):
     )
 
     assert "mfa_entered" not in record
-    assert (tmp_path / "oauth2_token.json").exists()
+    assert (tmp_path / "garmin_tokens.json").exists()
 
 
 def test_run_login_requires_email(tmp_path):
@@ -149,7 +154,7 @@ def test_run_login_rate_limited_raises_clean(tmp_path):
             out=lambda _l: None,
         )
     # nothing persisted on failure
-    assert not (tmp_path / "oauth2_token.json").exists()
+    assert not (tmp_path / "garmin_tokens.json").exists()
 
 
 def test_run_login_bad_credentials_raises_clean(tmp_path):
@@ -182,11 +187,21 @@ def test_run_login_requires_password(tmp_path):
 # --------------------------------------------------------------------------- #
 def _seed_tokens(store: Path) -> None:
     store.mkdir(parents=True, exist_ok=True)
-    (store / "oauth1_token.json").write_text("{}")
-    (store / "oauth2_token.json").write_text("{}")
+    (store / "garmin_tokens.json").write_text("{}")
 
 
 def test_status_missing_when_no_files(tmp_path):
+    assert token_status(tmp_path, garmin_factory=_factory({})) is TokenState.MISSING
+
+
+def test_status_missing_for_legacy_oauth_files_only(tmp_path):
+    # garth's old oauth1/oauth2 pair is NOT the garminconnect 0.3.6 format; a
+    # store holding only those must read as MISSING. Regression: the probe once
+    # matched oauth*_token.json and so reported MISSING for a real (garmin_tokens
+    # .json) login while reporting VALID for these stale leftovers — exactly
+    # backwards. Pin the real filename.
+    (tmp_path / "oauth1_token.json").write_text("{}")
+    (tmp_path / "oauth2_token.json").write_text("{}")
     assert token_status(tmp_path, garmin_factory=_factory({})) is TokenState.MISSING
 
 
