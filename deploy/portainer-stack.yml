@@ -1,0 +1,78 @@
+# coachd — Portainer stack (named volume, no host bind-mount)
+# =============================================================================
+# Deploy in Portainer: Stacks → Add stack → Web editor → paste this →
+# fill the Environment variables (below) → Deploy.
+#
+# Differs from the repo docker-compose.yml on purpose:
+#   - uses a published image (no build context — Portainer has none)
+#   - stores data in a Docker NAMED VOLUME (coachd-data), not ./data bind-mount
+#   - takes config from Portainer's "Environment variables" panel, not env_file
+#
+# ── One-time onboarding (do this once, after the first Deploy) ───────────────
+# coachd needs two interactive things a stack deploy can't do: the Garmin login
+# (email + password + MFA) and discovering your Telegram chat id. Both run inside
+# the container via Portainer's Console (it gives a TTY, so password/MFA prompts
+# work). The data they write lands in the coachd-data volume and survives redeploys.
+#
+#  A) If you ALREADY know TG_CHAT_ID and your Anthropic credential is valid:
+#     1. Deploy this stack. The container starts and stays up (it has no Garmin
+#        tokens yet — it just nudges at report time; serve does NOT gate boot on
+#        Garmin tokens, only on a valid Anthropic credential).
+#     2. Portainer → Containers → coachd → ">_ Console" → Command: /bin/sh,
+#        tick "Interactive & TTY" → Connect.
+#     3. Run:  python -m coachd login          # email → password → MFA code
+#              python -m coachd token-status   # expect: valid
+#     4. Restart the container (Portainer → Restart).
+#
+#  B) If you DON'T know TG_CHAT_ID yet (serve won't boot without it):
+#     1. Uncomment the `entrypoint: ["sleep", "infinity"]` line below and Deploy.
+#        The container idles instead of running serve, so you can exec into it.
+#     2. Console (as above) → run:
+#              python -m coachd chat-id        # prints TG_CHAT_ID=… to paste
+#              python -m coachd login          # Garmin tokens → coachd-data volume
+#        (Get chat-id HERE, before serve runs — a running serve owns Telegram
+#        getUpdates and `chat-id` would hit a 409 Conflict.)
+#     3. Put the printed TG_CHAT_ID into the stack env, RE-COMMENT the entrypoint
+#        line, and Redeploy. serve now boots with tokens + chat id present.
+#
+# Voice notes: swap the image tag to vitaurus/coachd:latest-voice and uncomment
+# the WHISPER_* / VOICE_ENABLED knobs. The whisper model downloads once into the
+# same volume (/data/whisper) and persists.
+# =============================================================================
+
+services:
+  coachd:
+    image: vitaurus/coachd:latest            # text-only; :latest-voice for voice notes
+    # Onboarding shortcut (see note B above): uncomment to idle instead of serve,
+    # exec in to run `login` / `chat-id`, then re-comment and redeploy.
+    # entrypoint: ["sleep", "infinity"]
+    environment:
+      # --- Required ---
+      TG_BOT_TOKEN: ${TG_BOT_TOKEN}                      # from @BotFather
+      TG_CHAT_ID: ${TG_CHAT_ID}                          # comma-separated for a household: 111,222
+      # Anthropic — set EXACTLY ONE in the Portainer env panel; leave the other unset.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}            # sk-ant-api… from console.anthropic.com
+      CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN} # OR sk-ant-oat… from `claude setup-token`
+      USER_NAME: ${USER_NAME}                            # used in the coach's prompts
+      WORN_START: ${WORN_START}                          # first day you wore the watch, ISO YYYY-MM-DD
+      TZ: ${TZ}                                          # IANA tz, e.g. Europe/Kyiv — REQUIRED, no default
+
+      # --- Optional (uncomment + set in the env panel to override) ---
+      # COACH_LANG: ${COACH_LANG}                        # en (default) | uk
+      # MORNING_TIME: ${MORNING_TIME}                    # HH:MM in your TZ, default 07:00
+      # EVENING_TIME: ${EVENING_TIME}                    # HH:MM in your TZ, default 22:00
+      # MODEL: ${MODEL}                                  # default claude-sonnet-4-6; claude-opus-4-8 for max quality
+      # USE_1M_CONTEXT: ${USE_1M_CONTEXT}                # true to enable 1M beta (API-key auth only; ignored under OAuth)
+
+      # --- Voice notes (only on a :latest-voice image) ---
+      # WHISPER_MODEL: ${WHISPER_MODEL}                  # default small; medium for better uk/accented accuracy
+      # WHISPER_COMPUTE: ${WHISPER_COMPUTE}              # default int8; int8_float32/float32 trade RAM for accuracy
+      # MAX_VOICE_SECONDS: ${MAX_VOICE_SECONDS}          # default 300
+      # VOICE_ENABLED: ${VOICE_ENABLED}                  # false to run a voice image with voice off (no rebuild)
+      # STT_DOWNLOAD_ROOT is left at its default /data/whisper (inside the volume)
+    volumes:
+      - coachd-data:/data                                # Garmin tokens + coach state + whisper cache
+    restart: unless-stopped
+
+volumes:
+  coachd-data:
