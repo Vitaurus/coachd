@@ -13,8 +13,8 @@ up`. The flow that makes the product installable:
       │ Garmin demands MFA ──► asks MFA code   │   ├── MISSING     → tell user to `login`
       │ login() succeeds                       │   ├── EXPIRED     → Telegram re-auth NUDGE
       ▼ client.dump(tokenstore) ──────────┐    │   └── UNREACHABLE → quiet retry (Garmin blip,
-        oauth1_token.json                  │    │                     NOT an auth problem → no nudge)
-        oauth2_token.json                  │    ▼
+        garmin_tokens.json                 │    │                     NOT an auth problem → no nudge)
+                                           │    ▼
                                            └──► mounted volume ◄── same GARMINTOKENS the engine reads
 
 The EXPIRED-vs-UNREACHABLE split is the whole point of the state machine: nudging
@@ -37,10 +37,21 @@ from garminconnect import (
     GarminConnectTooManyRequestsError,
 )
 
-# garminconnect's client.dump() writes exactly these two files into the
-# tokenstore dir. Their presence is the cheap "do tokens exist at all" probe
-# before we pay a network round-trip to validate them.
-_TOKEN_GLOB = "oauth*_token.json"
+def _token_file(store: Path) -> Path:
+    """Path of the token file garminconnect writes inside a tokenstore.
+
+    garminconnect 0.3.6 absorbed garth and changed the on-disk format: handed a
+    directory it writes a single ``garmin_tokens.json`` (and treats a ``*.json``
+    path as the file itself — see its ``client.dump``/``load``). The old garth
+    ``oauth1/oauth2_token.json`` pair no longer exists, so probing for those
+    returned a false MISSING after a real login while the runtime loaded the
+    tokens fine. Mirror the library's own dir-vs-file resolution so the cheap
+    presence probe matches what ``login`` actually wrote.
+    """
+    store = store.expanduser()
+    if store.is_dir() or not store.name.endswith(".json"):
+        return store / "garmin_tokens.json"
+    return store
 
 
 class TokenState(str, Enum):
@@ -139,7 +150,7 @@ def run_login(
             "Could not reach Garmin. Check your network and try again."
         ) from exc
 
-    client.client.dump(str(store))  # writes oauth1_token.json + oauth2_token.json
+    client.client.dump(str(store))  # writes garmin_tokens.json into the dir (garminconnect 0.3.x)
     out(f"✓ Garmin tokens saved to {store}")
     out("You can now start the coach: docker compose up -d")
 
@@ -156,7 +167,7 @@ def token_status(
     rate-limit failure → UNREACHABLE (transient — retry, never nudge).
     """
     store = Path(tokenstore).expanduser()
-    if not store.exists() or not any(store.glob(_TOKEN_GLOB)):
+    if not _token_file(store).exists():
         return TokenState.MISSING
 
     client = garmin_factory()
