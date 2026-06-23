@@ -157,12 +157,44 @@ you already cloned, switch the committed compose to a published image by
 commenting out its `build:` block and setting `image:` to one of the tags above.
 
 ### Portainer / named volumes
-Deploying through Portainer (or any stack UI that has no host bind-mount)? Use
-[`deploy/portainer-stack.yml`](deploy/portainer-stack.yml). It stores data in a
-Docker **named volume** instead of `./data`, takes config from Portainer's
-environment-variables panel instead of an `env_file`, and its header documents how
-to run the one-time interactive Garmin `login` (and `chat-id`) through the
-container **Console** — the bit a stack deploy can't do on its own.
+Deploying through Portainer (or any stack UI with no host bind-mount)? Use
+[`deploy/portainer-stack.yml`](deploy/portainer-stack.yml) — it stores data in a
+Docker **named volume** (`coachd-data`) instead of `./data`, and takes config from
+Portainer's environment-variables panel instead of an `env_file`.
+
+**The one-time login is the catch — you cannot start the coach without it.** A
+stack deploy can't do the interactive Garmin login (email + password + MFA) or
+discover your Telegram chat id; both need a terminal. You run them *inside* the
+container via Portainer's **Console** (it allocates a TTY, so the hidden-password
+and MFA prompts work). What they write lands in the `coachd-data` volume and
+survives redeploys.
+
+**Path A — you already know `TG_CHAT_ID` and your Anthropic credential is valid:**
+1. Deploy the stack. The container starts and stays up — `serve` does **not** gate
+   boot on Garmin tokens (only on a valid Anthropic credential), so it runs and
+   just nudges at report time.
+2. Portainer → **Containers** → `coachd` → **`>_` Console** → Command `/bin/sh`,
+   tick **Interactive & TTY** → **Connect**.
+3. In the shell:
+   ```sh
+   python -m coachd login          # email → password (hidden) → MFA code
+   python -m coachd token-status   # expect: valid
+   ```
+4. Restart the container (Portainer → **Restart**).
+
+**Path B — you don't know `TG_CHAT_ID` yet (serve won't boot without it):**
+`serve` requires `TG_CHAT_ID` **and** a valid Anthropic credential at boot; without
+them the container exits and you can't exec in. So idle it first: uncomment
+`entrypoint: ["sleep", "infinity"]` in the stack and redeploy. Then open the
+Console and run:
+```sh
+python -m coachd chat-id        # prints TG_CHAT_ID=… to paste
+python -m coachd login          # Garmin tokens → coachd-data volume
+```
+Get `chat-id` **here, before `serve` runs** — a running `serve` owns Telegram
+`getUpdates`, so `chat-id` would hit a 409 Conflict. Then paste `TG_CHAT_ID` into
+the stack env, **re-comment** the `entrypoint` line, and redeploy. `serve` now
+boots with tokens + chat id present.
 
 ## Configuration
 All configuration is via environment variables (put them in `.env`). The `login`
