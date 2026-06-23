@@ -156,6 +156,14 @@ it gives a self-contained `docker-compose.yml` that pulls instead of builds. If
 you already cloned, switch the committed compose to a published image by
 commenting out its `build:` block and setting `image:` to one of the tags above.
 
+### Portainer / named volumes
+Deploying through Portainer (or any stack UI that has no host bind-mount)? Use
+[`deploy/portainer-stack.yml`](deploy/portainer-stack.yml). It stores data in a
+Docker **named volume** instead of `./data`, takes config from Portainer's
+environment-variables panel instead of an `env_file`, and its header documents how
+to run the one-time interactive Garmin `login` (and `chat-id`) through the
+container **Console** — the bit a stack deploy can't do on its own.
+
 ## Configuration
 All configuration is via environment variables (put them in `.env`). The `login`
 and `token-status` commands need only `GARMINTOKENS` + `TZ`; the running coach
