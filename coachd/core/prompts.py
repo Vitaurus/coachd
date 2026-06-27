@@ -77,6 +77,26 @@ def build_image_instruction() -> str:
     )
 
 
+def build_digest_prompt(actions: str, turns: str, *, language: str = "English") -> str:
+    """Build the daily-digest summarizer prompt (no tools; one cheap call/day).
+
+    Condenses the day's confirmed write-actions + chat into ONE line for the
+    coach's journal, giving the evening report continuity so it never contradicts
+    advice already given. English corpus; the OUTPUT language is set by
+    ``language`` (chat is in COACH_LANG, so the digest matches the report)."""
+    return (
+        "Summarize TODAY's coaching interactions into ONE short line for the "
+        "coach's private journal (the user never sees it). It gives the evening "
+        "report continuity so it does not contradict advice already given.\n\n"
+        "CONFIRMED ACTIONS (ground truth — ALWAYS reflect any workout the coach "
+        f"scheduled or created):\n{actions}\n\n"
+        f"CONVERSATION:\n{turns}\n\n"
+        f"Write exactly one line in {language}, plain text, no markdown. State what "
+        "the coach prescribed or advised and any key context the user gave "
+        "(soreness, fatigue, plans). If nothing material happened, say so briefly."
+    )
+
+
 def _metrics_block(mode: str) -> str:
     keys = ", ".join(CANONICAL_KEYS[mode])
     return (
@@ -160,7 +180,11 @@ def build_report_prompt(
             f"compute it, say so.\n"
             f"Conclusion: 1) the day's summary in the context of the week; 2) workout "
             f"quality (HR zones), if there was one; 3) advice for tomorrow + a "
-            f"recommended bedtime."
+            f"recommended bedtime.\n"
+            f"If the journal has an 'interactions' entry for today where YOU "
+            f"prescribed or scheduled the activity, treat that workout as PLANNED — "
+            f"acknowledge it as following your own advice and do NOT fault the user "
+            f"for doing it."
         )
 
     return (

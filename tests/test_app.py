@@ -108,6 +108,27 @@ def test_report_agent_is_readonly_chat_agent_is_guarded(tmp_path):
     assert getattr(verdict, "behavior", None) == "deny"
 
 
+def test_daily_digest_wired_with_toolless_summarizer(tmp_path):
+    fake_query, fake_options = _fakes()
+    app = build_app(
+        _config(tmp_path), methodology="RULES",
+        query_fn=fake_query, options_cls=fake_options, post=lambda u, d: None,
+    )
+    from coachd.core.daily_digest import DailyDigest
+
+    assert isinstance(app.digest, DailyDigest)
+    # the summarizer agent is TOOL-FREE (no Garmin reads/writes) and unguarded —
+    # it only condenses text, so it never needs the MCP tools or the write guard.
+    opts = app.digest._llm._build_options()
+    assert opts.allowed_tools == []
+    assert opts.can_use_tool is None
+    # it must read the SAME stores the chat agent writes, and the SAME journal the
+    # report reads — otherwise the row would never reach the evening report.
+    assert app.digest._pending is app.pending
+    assert app.digest._sessions is app.session_store
+    assert app.digest._journal is app.engine._journal
+
+
 def test_owner_gate_wired(tmp_path):
     fake_query, fake_options = _fakes()
     app = build_app(

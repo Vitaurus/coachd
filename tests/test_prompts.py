@@ -12,7 +12,12 @@ from datetime import date
 import pytest
 
 from coachd.core.parsing import CANONICAL_KEYS, MARKER
-from coachd.core.prompts import build_image_instruction, build_report_prompt, build_system_prompt
+from coachd.core.prompts import (
+    build_digest_prompt,
+    build_image_instruction,
+    build_report_prompt,
+    build_system_prompt,
+)
 
 WORN = date(2026, 6, 8)
 TODAY = date(2026, 6, 15)  # day 8
@@ -93,3 +98,37 @@ def test_output_language_line_follows_language_arg():
 def test_invalid_mode_raises():
     with pytest.raises(ValueError, match="mode"):
         build_report_prompt("noon", TODAY, "now", [], user_name="X", worn_start=WORN)
+
+
+# --- daily-digest cross-agent memory ---------------------------------------- #
+def test_evening_prompt_reconciles_with_interactions_row():
+    # the evening report must not scold the user for a workout the coach itself
+    # prescribed earlier the same day (visible as an 'interactions' journal row)
+    p = build_report_prompt(
+        "evening", TODAY, "2026-06-15 22:00 EEST", [], user_name="Oleksa", worn_start=WORN
+    )
+    low = p.lower()
+    assert "interactions" in low
+    assert "do not fault" in low
+
+
+def test_morning_prompt_has_no_reconciliation_line():
+    # scope: the reconciliation instruction is evening-only
+    p = build_report_prompt(
+        "morning", TODAY, "now", [], user_name="X", worn_start=WORN
+    )
+    assert "do not fault" not in p.lower()
+
+
+def test_digest_prompt_carries_actions_turns_and_language():
+    p = build_digest_prompt(
+        '- upload_workout {"name":"5k"}', "user: feeling tired", language="Ukrainian"
+    )
+    assert "upload_workout" in p          # confirmed action (ground truth) present
+    assert "user: feeling tired" in p     # conversation present
+    assert "Ukrainian" in p               # output language threaded
+    assert "one line" in p.lower()        # single-line contract for the tail
+
+
+def test_digest_prompt_defaults_to_english():
+    assert "English" in build_digest_prompt("(none)", "(none)")

@@ -90,6 +90,64 @@ def test_error_with_valid_token_keeps_error_message():
     assert msg == "⚠️ не вдалося"                    # non-auth error → no false re-login nudge
 
 
+# --- daily digest: runs before the EVENING report so it lands in the journal --- #
+class _OrderEngine:
+    def __init__(self, order):
+        self._order = order
+
+    async def run_report(self, mode, on_date, now_str):
+        self._order.append("report")
+        return ReportOutcome(RunState.OK, "ok", "ok", 0.0)
+
+
+def _digest_app(engine, digest):
+    return SimpleNamespace(
+        config=SimpleNamespace(tz="Europe/Kyiv", tokenstore="/data/garmin"),
+        engine=engine,
+        digest=digest,
+        messenger=_Messenger(),
+        strings=Strings("en"),
+    )
+
+
+def test_evening_fires_digest_before_report():
+    order: list = []
+
+    class _Digest:
+        async def run(self, on_date):
+            order.append("digest")
+            self.on_date = on_date
+
+    digest = _Digest()
+    app = _digest_app(_OrderEngine(order), digest)
+    asyncio.run(fire_report(app, "evening", NOW, token_state_fn=_token_fn(TokenState.VALID, calls=[])))
+    assert order == ["digest", "report"]      # digest writes its row, THEN the report reads it
+    assert digest.on_date == NOW.date()
+
+
+def test_morning_does_not_fire_digest():
+    order: list = []
+
+    class _Digest:
+        async def run(self, on_date):
+            order.append("digest")
+
+    app = _digest_app(_OrderEngine(order), _Digest())
+    asyncio.run(fire_report(app, "morning", NOW, token_state_fn=_token_fn(TokenState.VALID, calls=[])))
+    assert order == ["report"]                # morning has no digest step
+
+
+def test_evening_digest_failure_does_not_block_report():
+    class _BadDigest:
+        async def run(self, on_date):
+            raise RuntimeError("digest boom")
+
+    app = _digest_app(_OrderEngine([]), _BadDigest())
+    msg = asyncio.run(fire_report(app, "evening", NOW, token_state_fn=_token_fn(TokenState.VALID, calls=[])))
+    assert msg == "ok"                        # a digest failure must NEVER block delivery
+    assert app.messenger.sent == ["ok"]
+
+
 def test_scheduler_registers_two_timezone_jobs():
     async def _t():
         app = SimpleNamespace(config=SimpleNamespace(tz="Europe/Kyiv"))

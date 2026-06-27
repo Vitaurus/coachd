@@ -10,11 +10,14 @@ failure becomes a clear "re-login" nudge instead of a vague error.
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from typing import Awaitable, Callable, Protocol
 
 from .auth.garmin_login import TokenState
 from .core.resilience import RunState
+
+_log = logging.getLogger(__name__)
 
 # token_state_fn(tokenstore) -> TokenState
 TokenStateFn = Callable[[str], TokenState]
@@ -38,7 +41,20 @@ async def fire_report(app: _AppLike, mode: str, now: datetime, *, token_state_fn
     On ERROR, classify the token: EXPIRED/MISSING → replace the vague failure with
     the re-auth nudge so the user knows exactly what to do. Otherwise deliver the
     engine's message (OK report, EMPTY notice, or a non-auth error).
+
+    Before the EVENING report, run the daily digest so the day's confirmed
+    actions + chat advice land in the journal FIRST — the report then reads them
+    through its journal tail and won't contradict the chat coach. A digest failure
+    never blocks delivery.
     """
+    if mode == "evening":
+        digest = getattr(app, "digest", None)
+        if digest is not None:
+            try:
+                await digest.run(now.date())
+            except Exception:
+                _log.exception("daily digest failed; delivering the report without it")
+
     outcome = await app.engine.run_report(mode, now.date(), format_now(now))
     message = outcome.message
 

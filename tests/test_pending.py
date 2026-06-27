@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+from datetime import date
+from zoneinfo import ZoneInfo
+
 from coachd.core.pending import CANCELLED, PENDING, USED, PendingStore
+
+KYIV = ZoneInfo("Europe/Kyiv")
 
 _NONCES = iter(f"n{i}" for i in range(1000))
 
@@ -80,3 +85,30 @@ def test_purge_resolved_keeps_only_pending(tmp_path):
     removed = s.purge_resolved()
     assert removed == 1
     assert s.get(b.nonce) is not None and s.get(a.nonce) is None
+
+
+# --- used_on: the deterministic confirmed-action feed for the daily digest --- #
+def test_used_on_excludes_pending_and_cancelled(tmp_path):
+    s = _store(tmp_path)  # clock fixed at 2026-06-15T07:00:00+00:00 → 10:00 Kyiv
+    s.put("t1", {})                       # stays pending
+    c = s.put("t2", {})
+    s.cancel(c.nonce)                     # cancelled
+    u = s.put("t3", {"name": "5k"})
+    s.confirm(u.nonce)                    # used
+    out = s.used_on(date(2026, 6, 15), KYIV)
+    assert [x.nonce for x in out] == [u.nonce]     # only the USED one
+    assert out[0].input == {"name": "5k"}
+
+
+def test_used_on_uses_local_calendar_day(tmp_path):
+    # 22:30 UTC on the 14th is 01:30 Kyiv on the 15th — the digest must file it
+    # under the LOCAL day, not the UTC day.
+    s = PendingStore(
+        tmp_path / "pending.json",
+        nonce_factory=lambda: next(_NONCES),
+        now=lambda: "2026-06-14T22:30:00+00:00",
+    )
+    a = s.put("mcp__garmin__upload_workout", {})
+    s.confirm(a.nonce)
+    assert [x.nonce for x in s.used_on(date(2026, 6, 15), KYIV)] == [a.nonce]
+    assert s.used_on(date(2026, 6, 14), KYIV) == []

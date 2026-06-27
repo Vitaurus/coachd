@@ -35,6 +35,21 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _local_date(ts: str, tz):
+    """The calendar day of UTC-ish ``ts`` in zone ``tz`` (None if unparseable).
+
+    Stored timestamps are UTC; the digest groups by the user's local day, so a
+    late-night confirmation lands on the right date."""
+    from datetime import datetime, timezone
+    try:
+        dt = datetime.fromisoformat(ts)
+    except Exception:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(tz).date()
+
+
 @dataclass(frozen=True)
 class PendingAction:
     nonce: str
@@ -99,6 +114,19 @@ class PendingStore:
     def list_pending(self) -> list[PendingAction]:
         """All actions still awaiting confirmation (status == pending)."""
         return [a for a in self._actions.values() if a.status == PENDING]
+
+    def used_on(self, local_date, tz) -> list[PendingAction]:
+        """USED actions confirmed on ``local_date`` (in ``tz``), oldest first.
+
+        The deterministic ground-truth feed for the daily digest: confirmed writes
+        (e.g. a scheduled workout) the evening report must not contradict. Pulled
+        from the durable store, not chat history, so a chatty day can never evict
+        a morning workout before the evening report runs."""
+        out = [
+            a for a in self._actions.values()
+            if a.status == USED and _local_date(a.created_ts, tz) == local_date
+        ]
+        return sorted(out, key=lambda a: a.created_ts)
 
     def confirm(self, nonce: str) -> PendingAction | None:
         """Mark a pending action used and return it — exactly once.
