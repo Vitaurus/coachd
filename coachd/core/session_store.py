@@ -20,6 +20,18 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _local_date(ts: str, tz):
+    """Calendar day of UTC-ish ``ts`` in zone ``tz`` (None if unparseable)."""
+    from datetime import datetime, timezone
+    try:
+        dt = datetime.fromisoformat(ts)
+    except Exception:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(tz).date()
+
+
 @dataclass(frozen=True)
 class Turn:
     role: str   # "user" | "assistant"
@@ -78,6 +90,17 @@ class SessionStore:
 
     def history(self, chat_id: object) -> list[Turn]:
         return list(self._data.get(str(chat_id), []))
+
+    def turns_on(self, local_date, tz) -> list[Turn]:
+        """Every chat's turns on ``local_date`` (in ``tz``), oldest first.
+
+        Aggregates ALL chats — a household has several owner chat ids and the
+        report is not per-chat — so the digest sees the whole day's conversation.
+        Sorted by ts for a deterministic transcript."""
+        out: list[Turn] = []
+        for turns in self._data.values():
+            out.extend(t for t in turns if _local_date(t.ts, tz) == local_date)
+        return sorted(out, key=lambda t: t.ts)
 
     def clear(self, chat_id: object) -> None:
         if str(chat_id) in self._data:

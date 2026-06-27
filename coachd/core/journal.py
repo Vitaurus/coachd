@@ -150,6 +150,26 @@ class Journal:
 
         return prose
 
+    def record_interactions(self, date: str, verdict: str) -> None:
+        """Persist the day's chat/action digest as a ``(date, "interactions")`` row.
+
+        Unlike :meth:`record` there is no METRICS block to split — ``verdict`` is a
+        ready one-line summary. Stored in the same fallback shape the report path
+        uses (``{"metrics": {}, "verdict": ...}``) so ``tail`` renders it as one
+        line, and deduplicated per ``(date, "interactions")`` so the evening digest
+        can run twice without duplicating. Never raises — a digest write must never
+        break the report that consumes it."""
+        rec = {"metrics": {}, "verdict": verdict, "ts": self._now(), "date": date, "mode": "interactions"}
+        try:
+            kept = [
+                r for r in self.read_records()
+                if (r.get("date"), r.get("mode")) != (date, "interactions")
+            ]
+            kept.append(rec)
+            self.write_records(kept)
+        except Exception:
+            pass
+
     def probe(self, mode: str, raw: str) -> bool:
         """True if at least one core metric for ``mode`` is non-empty, else False.
 

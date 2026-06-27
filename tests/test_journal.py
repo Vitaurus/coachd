@@ -130,3 +130,34 @@ def test_write_is_minified_and_unicode(tmp_path):
     assert "Готовність" in raw           # ensure_ascii=False — Cyrillic round-trips
     assert ", " not in raw and ": " not in raw  # minified separators
     json.loads(raw.strip().split("\n")[0])  # valid JSON line
+
+
+# --- interactions rows: the shared "what happened today" memory ------------- #
+def test_record_interactions_persists_and_tails(tmp_path):
+    j = _journal(tmp_path)
+    j.record_interactions("2026-06-14", "Coach scheduled Easy 5k today; user reported soreness")
+    recs = j.read_records()
+    assert len(recs) == 1
+    assert recs[0]["mode"] == "interactions"
+    assert recs[0]["date"] == "2026-06-14"
+    assert recs[0]["verdict"] == "Coach scheduled Easy 5k today; user reported soreness"
+    # surfaces in tail so BOTH reports see it via the existing journal block
+    lines = j.tail(10)
+    assert any("interactions: Coach scheduled Easy 5k today" in ln for ln in lines)
+
+
+def test_record_interactions_is_idempotent_per_date(tmp_path):
+    j = _journal(tmp_path)
+    j.record_interactions("2026-06-14", "first")
+    j.record_interactions("2026-06-14", "second")
+    recs = [r for r in j.read_records() if r["mode"] == "interactions"]
+    assert len(recs) == 1, "re-recording same (date, interactions) must REPLACE"
+    assert recs[0]["verdict"] == "second"
+
+
+def test_record_interactions_coexists_with_reports(tmp_path):
+    j = _journal(tmp_path)
+    j.record("2026-06-14", "morning", _morning())
+    j.record_interactions("2026-06-14", "coach prescribed rest")
+    modes = {r["mode"] for r in j.read_records()}
+    assert modes == {"morning", "interactions"}

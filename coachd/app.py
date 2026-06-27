@@ -29,6 +29,7 @@ from .adapters.telegram import TelegramMessenger
 from .adapters.telegram_bot import TelegramBot
 from .config import ServiceConfig
 from .core.chat import ChatEngine
+from .core.daily_digest import DailyDigest
 from .core.engine import CoachEngine
 from .core.i18n import LANGUAGE_NAMES, Strings
 from .core.journal import Journal
@@ -49,6 +50,7 @@ class App:
     config: ServiceConfig
     provider: GarminProvider
     engine: CoachEngine
+    digest: DailyDigest  # cross-agent daily memory, run before the evening report
     chat_engine: ChatEngine
     chat_agent: AnthropicAgent
     messenger: TelegramMessenger
@@ -127,9 +129,12 @@ def build_app(
         options_cls=options_cls,
     )
 
+    # one journal instance shared by the report engine (reads + writes report rows)
+    # and the daily digest (writes the interactions row the report then reads)
+    journal = Journal(data_root / "journal.jsonl")
     engine = CoachEngine(
         llm=report_agent,
-        journal=Journal(data_root / "journal.jsonl"),
+        journal=journal,
         user_name=config.user_name,
         worn_start=config.worn_start,
         strings=strings,
@@ -147,6 +152,28 @@ def build_app(
         pending=pending,
         strings=strings,
         now=lambda: datetime.now(_tz),  # tz-aware so "tomorrow" → a real schedule_date
+    )
+
+    # --- daily digest: a tool-free summarizer condenses the day's confirmed
+    # actions + chat into one journal 'interactions' row before the evening report,
+    # so the report can't contradict advice the chat coach already gave. No MCP, no
+    # write guard — it only distils text, never touches Garmin.
+    digest_agent = AnthropicAgent(
+        model=config.model,
+        system_prompt=system_prompt,
+        mcp_servers={},
+        allowed_tools=[],
+        use_1m_context=config.use_1m_context,
+        query_fn=query_fn,
+        options_cls=options_cls,
+    )
+    digest = DailyDigest(
+        llm=digest_agent,
+        pending=pending,
+        sessions=session_store,
+        journal=journal,
+        strings=strings,
+        tz=_tz,
     )
     executor = GarminMcpExecutor(provider.mcp_servers()["garmin"], strings)
 
@@ -192,6 +219,7 @@ def build_app(
         config=config,
         provider=provider,
         engine=engine,
+        digest=digest,
         chat_engine=chat_engine,
         chat_agent=chat_agent,
         messenger=messenger,
